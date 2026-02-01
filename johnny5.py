@@ -253,7 +253,7 @@ async def main() -> None:
                 await on_message(message, stream)
 
         mic_kwargs = {
-            "allow_user_interrupt": True,
+            "allow_user_interrupt": False,  # DISABLED - prevents feedback loop from speaker → mic
             "byte_stream": stream,
             "device": AUDIO_INPUT_DEVICE,
         }
