@@ -64,12 +64,16 @@ CONVERSATION_TIMEOUT = 30.0
 # Conversation state
 evi_last_activity = 0.0
 in_conversation = False
+audio_playing = False  # Mute mic during playback to prevent feedback
 
 # Latency tracking
 request_start_time = 0.0
 first_audio_time = 0.0
 audio_chunk_count = 0
 total_audio_bytes = 0
+
+# Socket reference for muting
+_socket = None
 
 
 def log(text: str, t0: float = None) -> None:
@@ -84,7 +88,7 @@ def log(text: str, t0: float = None) -> None:
 
 
 async def on_message(message: SubscribeEvent, stream: Stream) -> None:
-    global evi_last_activity, in_conversation
+    global evi_last_activity, in_conversation, audio_playing, _socket
     global first_audio_time, audio_chunk_count, total_audio_bytes, request_start_time
 
     if message.type == "chat_metadata":
@@ -109,6 +113,14 @@ async def on_message(message: SubscribeEvent, stream: Stream) -> None:
         chunk_size = len(chunk_bytes)
 
         if audio_chunk_count == 0:
+            # MUTE MIC when audio starts playing (prevent feedback loop)
+            audio_playing = True
+            if _socket:
+                try:
+                    await _socket.mute()
+                    log("MIC MUTED (audio playing)")
+                except Exception:
+                    pass  # mute() may not exist in all SDK versions
             first_audio_time = time.time()
             if request_start_time:
                 latency_ms = (first_audio_time - request_start_time) * 1000
@@ -132,6 +144,16 @@ async def on_message(message: SubscribeEvent, stream: Stream) -> None:
         total_audio_bytes = 0
         first_audio_time = 0.0
 
+        # UNMUTE MIC after audio finishes (with small delay for speaker to quiet)
+        audio_playing = False
+        if _socket:
+            try:
+                await asyncio.sleep(0.3)  # Let speaker settle
+                await _socket.unmute()
+                log("MIC UNMUTED (audio done)")
+            except Exception:
+                pass  # unmute() may not exist in all SDK versions
+
     elif message.type == "error":
         log(f"ERROR: {message.code} - {message.message}")
 
@@ -141,7 +163,7 @@ async def on_message(message: SubscribeEvent, stream: Stream) -> None:
 
 async def check_greetings(socket):
     """Check for greeting requests from face recognition - DON'T interrupt conversations"""
-    global evi_last_activity, in_conversation, request_start_time
+    global evi_last_activity, in_conversation, request_start_time, audio_playing
     global audio_chunk_count, total_audio_bytes, first_audio_time
     last_greeted = {}
 
@@ -155,8 +177,8 @@ async def check_greetings(socket):
                 log("(conversation ended - idle timeout)")
                 in_conversation = False
 
-            # If in active conversation, just discard any greeting requests
-            if in_conversation:
+            # If audio is playing or in active conversation, discard greeting requests
+            if audio_playing or in_conversation:
                 if os.path.exists(GREETING_FILE):
                     os.remove(GREETING_FILE)
                 await asyncio.sleep(1.0)
@@ -221,6 +243,8 @@ async def main() -> None:
 
     connect_start = time.time()
     async with client.empathic_voice.chat.connect(**connect_kwargs) as socket:
+        global _socket
+        _socket = socket  # Store for mute/unmute in on_message
         connect_ms = (time.time() - connect_start) * 1000
         log(f"Connected! Number 5 is alive! (connect took {connect_ms:.0f}ms)")
 
