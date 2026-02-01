@@ -1,2 +1,176 @@
-# Physical-Ai-Hack-2026
-Physical Ai Hack 2026 Dhruv DIdi
+# Physical AI Hack 2026: Johnny Five
+
+> **"Number 5 is alive!"** — A multimodal identity robot that knows who you are.
+
+![Hackathon](https://img.shields.io/badge/Physical%20AI-Hack%202026-blue)
+![Status](https://img.shields.io/badge/Face%20Recognition-Working-green)
+![Platform](https://img.shields.io/badge/Jetson-Orin%208GB-orange)
+
+---
+
+## What is Johnny Five?
+
+Johnny Five is a robot that identifies people through **multiple modalities**:
+
+| Modality | Technology | Status |
+|----------|------------|--------|
+| **Face** | WhoAmI + YOLO + face_recognition | ✅ Working |
+| **Voice** | WeSpeaker ECAPA-TDNN | 🚧 Next |
+| **Direction** | 4-mic DOA array | 🚧 Planned |
+
+**The demo that wins:** Put a cap over the camera. Johnny still greets everyone by name — by voice alone.
+
+---
+
+## Hardware Stack
+
+| Component | Spec | Purpose |
+|-----------|------|---------|
+| **Brain** | Jetson Orin 8GB | Edge AI inference |
+| **Camera** | OAK-D S3 | Face detection + depth |
+| **Display** | 7" Touchscreen (800x480) | Fullscreen UI |
+| **Arms** | Dual SO101 (AlohaMini) | Gestures & interaction |
+| **Mic** | 4-way USB array | Voice ID + DOA |
+| **Power** | Anker Solix 12V | Portable operation |
+
+---
+
+## Current Status
+
+### ✅ Face Recognition (WhoAmI)
+
+Face recognition is **live and working** on the Jetson Orin:
+
+- **8 enrolled faces**: AL, Jordan, Sam, Jack, Vitaly, Armin, Emerson, Tigran
+- **YOLO v8** for person detection
+- **face_recognition** library (128-d embeddings)
+- **Temporal smoothing** — names lock after 2 positive IDs, no flickering
+- **Fullscreen display** on 7" touchscreen
+
+```
+Green box = Known person (name displayed)
+Yellow box = Unidentified
+* prefix = Identity locked (high confidence)
+```
+
+### 🚧 Voice Recognition (Next)
+
+WeSpeaker ECAPA-TDNN for speaker identification:
+- 192-d voice embeddings
+- Works even when camera is covered
+- Silero VAD for speech detection
+
+### 🚧 Direction of Arrival (Planned)
+
+4-mic array fusion with YOLO:
+- Know WHO is speaking, not just detect speech
+- Fuse audio direction with face bounding boxes
+
+---
+
+## Project Structure
+
+```
+Physical-Ai-Hack-2026/
+├── README.md              # You are here
+├── CLAUDE.md              # AI assistant context
+├── docs/                  # Planning & architecture
+│   ├── JOHNNY5_MULTIMODAL_IDENTITY.md
+│   ├── Johnny5_Complete_Hackathon_Plan.docx
+│   └── ...
+├── whoami/                # Face recognition system (submodule)
+├── AlohaMini/             # Robot arm control (submodule)
+├── XLeRobot/              # Motor/teleoperation (submodule)
+└── lets-connect/          # Networking utilities
+```
+
+---
+
+## Quick Start
+
+### Connect to Jetson
+
+```bash
+ssh robbie@192.168.88.44  # password: robot
+```
+
+### Run Face Recognition
+
+```bash
+# On Jetson
+cd /home/robbie
+DISPLAY=:0 python3 whoami_full.py
+```
+
+### Enroll a New Face
+
+```bash
+python3 enroll_face.py "YourName"
+# Press SPACE to capture, Q to quit
+```
+
+---
+
+## The Tech
+
+### Face Recognition Pipeline
+
+```
+OAK-D Camera
+    ↓
+YOLO v8 (person detection, class 0)
+    ↓
+Extract face region (upper 40% of bbox)
+    ↓
+face_recognition (128-d embeddings)
+    ↓
+Compare to enrolled faces (threshold < 0.55)
+    ↓
+Temporal smoothing (ignore "Unidentified" votes)
+    ↓
+Lock identity after 2 positive matches
+    ↓
+Display with colored bounding box
+```
+
+### Key Innovation: Smart Smoothing
+
+Previous approaches flickered between names. Our solution:
+
+```python
+class TrackedPerson:
+    def vote(self, name, conf):
+        # Only count REAL names, not Unidentified
+        if name != "Unidentified":
+            self.name_votes[name] += 1
+            if self.name_votes[best_name] >= 2:
+                self.locked_name = best_name  # Lock it!
+```
+
+This means:
+- ✅ Positive IDs accumulate
+- ✅ "Unidentified" frames are ignored
+- ✅ Identity locks after consistent recognition
+- ✅ No more AL → Unknown → AL flickering
+
+---
+
+## Team
+
+Built overnight for Physical AI Hack 2026.
+
+---
+
+## References
+
+- [WhoAmI](https://github.com/alanchelmickjr/whoami) — Face recognition for OAK-D
+- [AlohaMini](https://github.com/alanch/alohamini) — Dual arm robot control
+- [XLeRobot](https://github.com/alanch/xlerobot) — Teleoperation framework
+- [face_recognition](https://github.com/ageitgey/face_recognition) — dlib-based face embeddings
+- [WeSpeaker](https://github.com/wenet-e2e/wespeaker) — Speaker verification
+
+---
+
+## License
+
+MIT — Hack away!
