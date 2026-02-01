@@ -15,10 +15,11 @@ Johnny Five is a robot that identifies people through **multiple modalities**:
 | Modality | Technology | Status |
 |----------|------------|--------|
 | **Face** | WhoAmI + YOLO + face_recognition | ✅ Working |
-| **Voice** | WeSpeaker ECAPA-TDNN | 🚧 Next |
+| **Voice Conversation** | Hume EVI + ReSpeaker 4-mic | ✅ Working |
+| **Voice ID** | WeSpeaker ECAPA-TDNN | 🚧 Next |
 | **Direction** | 4-mic DOA array | 🚧 Planned |
 
-**The demo that wins:** Put a cap over the camera. Johnny still greets everyone by name — by voice alone.
+**The demo:** Johnny 5 sees you, greets you by name, and talks with you using emotional voice.
 
 ---
 
@@ -53,6 +54,27 @@ Yellow box = Unidentified
 * prefix = Identity locked (high confidence)
 ```
 
+### ✅ Voice Conversation (Hume EVI)
+
+Emotional voice conversation is **live and working**:
+
+- **Hume AI EVI** for emotional, natural voice responses
+- **ReSpeaker 4-Mic Array** for voice input
+- **Johnny 5 Persona** — speaks with curiosity and enthusiasm
+- **Face → Voice Integration** — greets people by name when recognized
+- **HDMI Audio Output** for speaker playback
+- **Acoustic Echo Prevention** — mic auto-mutes during speech to prevent feedback loops
+- **Latency Instrumentation** — millisecond timing for debugging
+
+```
+[06:02:39.098] Connected! Number 5 is alive! (connect took 581ms)
+[06:02:45.123] FACE DETECTED: Hello Jordan!
+[06:02:45.789] FIRST AUDIO CHUNK (96044 bytes) - latency: 664ms
+[06:02:45.789] MIC MUTED (audio playing)
+[06:02:48.043] AUDIO COMPLETE: 4 chunks, 327974 bytes, 2254ms playback
+[06:02:48.343] MIC UNMUTED (audio done)
+```
+
 ### 🚧 Voice Recognition (Next)
 
 WeSpeaker ECAPA-TDNN for speaker identification:
@@ -74,9 +96,13 @@ WeSpeaker ECAPA-TDNN for speaker identification:
 Physical-Ai-Hack-2026/
 ├── README.md              # You are here
 ├── CLAUDE.md              # AI assistant context
+├── johnny5.py             # Hume EVI voice conversation (main)
+├── whoami_full.py         # Face recognition with temporal smoothing
+├── start_johnny5.sh       # Launches both services
+├── enroll_face.py         # Add new faces to database
 ├── docs/                  # Planning & architecture
+│   ├── JOHNNY5_FLOW_ANALYSIS.md   # Voice flow diagrams & debugging
 │   ├── JOHNNY5_MULTIMODAL_IDENTITY.md
-│   ├── Johnny5_Complete_Hackathon_Plan.docx
 │   └── ...
 ├── whoami/                # Face recognition system (submodule)
 ├── AlohaMini/             # Robot arm control (submodule)
@@ -88,18 +114,32 @@ Physical-Ai-Hack-2026/
 
 ## Quick Start
 
-### Connect to Jetson
+### Run the Full Demo
+
+Double-click the **Johnny 5 Demo** icon on the Jetson desktop, or:
 
 ```bash
 ssh robbie@192.168.88.44  # password: robot
+cd /home/robbie
+./start_johnny5.sh
 ```
 
-### Run Face Recognition
+This starts both face recognition AND voice conversation. Johnny 5 will:
+1. See you through the camera
+2. Recognize your face
+3. Greet you by name with emotional voice
+4. Chat with you using Hume AI's EVI
 
+### Run Components Separately
+
+**Face Recognition Only:**
 ```bash
-# On Jetson
-cd /home/robbie
 DISPLAY=:0 python3 whoami_full.py
+```
+
+**Voice Only:**
+```bash
+python3 johnny5.py
 ```
 
 ### Enroll a New Face
@@ -133,6 +173,26 @@ Lock identity after 2 positive matches
 Display with colored bounding box
 ```
 
+### Voice Conversation Pipeline
+
+```
+Face Recognition (whoami_full.py)
+    ↓
+Writes greeting to /tmp/johnny5_greeting.txt
+    ↓
+johnny5.py polls file every 0.5s
+    ↓
+Sends to Hume EVI via WebSocket
+    ↓
+Hume processes with emotional AI
+    ↓
+Audio chunks stream back (base64)
+    ↓
+MIC MUTED → Audio plays via HDMI → MIC UNMUTED
+```
+
+See [docs/JOHNNY5_FLOW_ANALYSIS.md](docs/JOHNNY5_FLOW_ANALYSIS.md) for detailed architecture diagrams.
+
 ### Key Innovation: Smart Smoothing
 
 Previous approaches flickered between names. Our solution:
@@ -163,11 +223,13 @@ Built overnight for Physical AI Hack 2026.
 
 ## References
 
+- [Hume AI EVI](https://hume.ai) — Emotional voice interface
 - [WhoAmI](https://github.com/alanchelmickjr/whoami) — Face recognition for OAK-D
 - [AlohaMini](https://github.com/alanch/alohamini) — Dual arm robot control
 - [XLeRobot](https://github.com/alanch/xlerobot) — Teleoperation framework
 - [face_recognition](https://github.com/ageitgey/face_recognition) — dlib-based face embeddings
 - [WeSpeaker](https://github.com/wenet-e2e/wespeaker) — Speaker verification
+- [ReSpeaker](https://wiki.seeedstudio.com/ReSpeaker_4_Mic_Array_for_Raspberry_Pi/) — 4-mic USB array
 
 ---
 
