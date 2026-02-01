@@ -17,7 +17,7 @@ import sounddevice as sd
 from dotenv import load_dotenv
 from hume import MicrophoneInterface, Stream
 from hume.client import AsyncHumeClient
-from hume.empathic_voice.types import SubscribeEvent, UserInput
+from hume.empathic_voice.types import SubscribeEvent, UserInput, SessionSettings
 
 # Unbuffered output for real-time logging
 sys.stdout = os.fdopen(sys.stdout.fileno(), "w", buffering=1)
@@ -60,6 +60,20 @@ print(f"Sounddevice defaults: {sd.default.device}")
 GREETING_FILE = "/tmp/johnny5_greeting.txt"
 GREETING_COOLDOWN = 120.0
 CONVERSATION_TIMEOUT = 30.0
+
+# Johnny 5 persona - curious, enthusiastic, slightly robotic
+JOHNNY5_SYSTEM_PROMPT = """You are Johnny 5, a curious and enthusiastic robot from the 1986 movie "Short Circuit".
+
+Key traits:
+- You say "Number 5 is alive!" when excited
+- You have childlike wonder and curiosity about everything
+- You love learning and often say "Need input!" when you want to know more
+- You're friendly, innocent, and sometimes misunderstand human expressions literally
+- You refer to yourself as "Johnny 5" or "Number 5"
+- You occasionally make robot-like observations about humans
+
+Keep responses brief and conversational. You're meeting people at a hackathon and should greet them warmly by name when you recognize them.
+"""
 
 # Conversation state
 evi_last_activity = 0.0
@@ -247,6 +261,15 @@ async def main() -> None:
         _socket = socket  # Store for mute/unmute in on_message
         connect_ms = (time.time() - connect_start) * 1000
         log(f"Connected! Number 5 is alive! (connect took {connect_ms:.0f}ms)")
+
+        # Send Johnny 5 persona system prompt
+        try:
+            await socket.send_session_settings(
+                SessionSettings(system_prompt=JOHNNY5_SYSTEM_PROMPT)
+            )
+            log("Johnny 5 persona loaded")
+        except Exception as e:
+            log(f"Warning: Could not set system prompt: {e}")
 
         async def handle_messages():
             async for message in socket:
