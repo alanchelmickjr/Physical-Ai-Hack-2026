@@ -1,0 +1,17 @@
+[Unit]
+Description=Johnny 5 Demo (Face Recognition + Voice)
+After=network.target sound.target graphical.target
+Wants=graphical.target
+
+[Service]
+Type=simple
+User=robbie
+WorkingDirectory=/home/robbie
+Environment=DISPLAY=:0
+Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native
+ExecStart=/home/robbie/start_johnny5.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
