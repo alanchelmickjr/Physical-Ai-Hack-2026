@@ -1,0 +1,153 @@
+# actions/servo_banks.yaml
+# Dual servo bank configuration for Johnny Five (Chloe)
+# ACM0: Left side - arm, wheels, lift
+# ACM1: Right side - arm, gantry
+name: servo_banks
+version: "1.0"
+description: "Dual Feetech servo bank configuration"
+category: hardware
+
+# =============================================================================
+# BUS 0: ACM0 - Left Side
+# =============================================================================
+ACM0:
+  port: /dev/ttyACM0
+  description: "Left arm, wheels, lift"
+  total_servos: 10
+
+  subsystems:
+    left_arm:
+      description: "SO101 6-DOF arm (left)"
+      servos:
+        - id: 1
+          name: shoulder_rotate
+          range: [-180, 180]
+          default: 0
+        - id: 2
+          name: shoulder_pitch
+          range: [-90, 90]
+          default: 0
+        - id: 3
+          name: elbow
+          range: [-135, 135]
+          default: 0
+        - id: 4
+          name: wrist_rotate
+          range: [-180, 180]
+          default: 0
+        - id: 5
+          name: wrist_pitch
+          range: [-90, 90]
+          default: 0
+        - id: 6
+          name: gripper
+          range: [0, 100]
+          default: 0
+
+    base:
+      description: "3-wheel mecanum base"
+      servos:
+        - id: 7
+          name: wheel_left
+          type: continuous
+          direction: forward
+        - id: 8
+          name: wheel_right
+          type: continuous
+          direction: forward
+        - id: 9
+          name: wheel_rear
+          type: continuous
+          direction: forward
+
+    lift:
+      description: "30cm vertical lift"
+      servos:
+        - id: 10
+          name: lift_motor
+          range: [0, 300]  # mm
+          default: 0
+
+# =============================================================================
+# BUS 1: ACM1 - Right Side
+# =============================================================================
+ACM1:
+  port: /dev/ttyACM1
+  description: "Right arm, camera gantry"
+  total_servos: 8
+
+  subsystems:
+    right_arm:
+      description: "SO101 6-DOF arm (right)"
+      servos:
+        - id: 1
+          name: shoulder_rotate
+          range: [-180, 180]
+          default: 0
+        - id: 2
+          name: shoulder_pitch
+          range: [-90, 90]
+          default: 0
+        - id: 3
+          name: elbow
+          range: [-135, 135]
+          default: 0
+        - id: 4
+          name: wrist_rotate
+          range: [-180, 180]
+          default: 0
+        - id: 5
+          name: wrist_pitch
+          range: [-90, 90]
+          default: 0
+        - id: 6
+          name: gripper
+          range: [0, 100]
+          default: 0
+
+    gantry:
+      description: "OAK-D Pro 2-DOF camera mount (Feetech pan/tilt)"
+      servos:
+        - id: 7
+          name: pan
+          type: feetech
+          range: [-90, 90]
+          default: 0
+        - id: 8
+          name: tilt
+          type: feetech
+          range: [-45, 45]
+          default: 0
+
+# =============================================================================
+# CLI Control - Solo-Tech (forked/improved for Johnny Five)
+# =============================================================================
+cli:
+  tool: solo
+  description: "Uses solo-cli for Feetech servo communication"
+
+  commands:
+    # Basic motor operations
+    ping: "solo robo --port {{port}} --ids {{id}} --ping"
+    wiggle: "solo robo --port {{port}} --ids {{id}} --wiggle"
+    move: "solo robo --port {{port}} --ids {{id}} --position {{position}}"
+    read: "solo robo --port {{port}} --ids {{id}} --read"
+
+    # Bulk operations
+    scan_all: "solo robo --port {{port}} --scan"
+    calibrate: "solo robo --port {{port}} --calibrate {{id}}"
+    teleop: "solo robo --port {{port}} --teleop"
+
+    # Per-bus shortcuts
+    scan_acm0: "solo robo --port /dev/ttyACM0 --scan"
+    scan_acm1: "solo robo --port /dev/ttyACM1 --scan"
+
+# =============================================================================
+# Triggers
+# =============================================================================
+triggers:
+  - pattern: "scan.*motors|find.*servos"
+    action: scan_all_banks
+
+  - pattern: "calibrate.*all|setup.*servos"
+    action: calibrate_all_banks
