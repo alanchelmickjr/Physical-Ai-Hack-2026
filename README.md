@@ -4,11 +4,12 @@
 
 ![Hackathon](https://img.shields.io/badge/Physical%20AI-Hack%202026-blue)
 ![Status](https://img.shields.io/badge/Status-Functional-green)
-![Platform](https://img.shields.io/badge/Jetson-Orin%208GB-76B900)
-![Servos](https://img.shields.io/badge/Servos-19-purple)
+![Platform](https://img.shields.io/badge/Jetson-Orin-76B900)
+![Portable](https://img.shields.io/badge/Multi--Robot-Portable-orange)
 
 [![Hume EVI](https://img.shields.io/badge/Voice-Hume_EVI-FF6B6B)](https://hume.ai)
 [![OAK-D](https://img.shields.io/badge/Camera-OAK--D_Pro-00A0DC)](https://docs.luxonis.com/)
+[![ZED](https://img.shields.io/badge/Camera-ZED_X-00A0DC)](https://www.stereolabs.com/)
 [![ReSpeaker](https://img.shields.io/badge/Mic-ReSpeaker_4--Mic-00C853)](https://wiki.seeedstudio.com/ReSpeaker_Mic_Array_v2.0/)
 [![Solo-CLI](https://img.shields.io/badge/Motors-Solo--CLI-FF9800)](https://github.com/TheRobotStudio/SO-ARM100)
 
@@ -166,6 +167,7 @@ if speaker and speaker.is_valid:
 Physical-Ai-Hack-2026/
 ├── README.md                    # You are here
 ├── CLAUDE.md                    # AI assistant context
+├── robot_factory.py             # Unified robot creation entry point
 │
 ├── johnny5.py                   # Hume EVI voice conversation (main entry)
 ├── motion_coordinator.py        # Spine - autonomic movement control
@@ -179,9 +181,27 @@ Physical-Ai-Hack-2026/
 ├── johnny5_body.py              # Body movement abstraction
 ├── whoami_full.py               # Face recognition with temporal smoothing
 │
-├── adapters/                    # Hardware abstraction layer
+├── adapters/                    # Robot hardware adapters (drop-in)
 │   ├── base.py                  # Abstract RobotAdapter interface
-│   └── johnny5.py               # Solo-CLI implementation for Chloe
+│   ├── johnny5.py               # Johnny Five (Solo-CLI/Feetech)
+│   └── booster_k1.py            # Booster K1 (ROS2/bipedal)
+│
+├── cameras/                     # Camera abstraction layer
+│   ├── base.py                  # Abstract SpatialCamera interface
+│   ├── oakd.py                  # OAK-D / OAK-D Pro (VPU YOLO)
+│   ├── zed.py                   # ZED / ZED X / ZED 2
+│   └── factory.py               # Camera factory
+│
+├── microphones/                 # Microphone array abstraction
+│   ├── base.py                  # Abstract MicrophoneArray interface
+│   ├── respeaker.py             # ReSpeaker 4/6-Mic USB arrays
+│   ├── circular6.py             # Generic circular 6-mic (SRP-PHAT)
+│   └── factory.py               # Microphone factory
+│
+├── config/                      # Configuration
+│   ├── hardware.py              # Johnny Five motor config
+│   ├── motors.py                # Motor interface
+│   └── robots.py                # Multi-robot registry
 │
 ├── tools/                       # Hume EVI tool system
 │   ├── registry.py              # 50+ tool definitions
@@ -250,18 +270,68 @@ solo robo --calibrate all
 
 ## Platform Portability
 
-The adapter pattern allows the same spine to run on different robots:
+Johnny Five is designed to exist in **multiple bodies simultaneously**. The same mind, memories, and personality can run on different hardware platforms through abstraction layers.
+
+### Supported Platforms
+
+| Platform | Camera | Microphone | Locomotion | Status |
+|----------|--------|------------|------------|--------|
+| **Johnny Five** | OAK-D Pro | ReSpeaker 4-Mic | Mecanum wheels | Production |
+| **Booster K1** | ZED X | Circular 6-Mic | Bipedal (22 DOF) | Supported |
+
+### Quick Start
 
 ```python
-# Johnny5 (this robot)
-adapter = Johnny5Adapter()  # Solo-CLI → Dynamixel
+from robot_factory import create_robot, RobotType
 
-# Future: OpenDroids
-adapter = OpenDroidAdapter()  # Different motors, same spine
+# Auto-detect hardware
+robot = create_robot()
 
-# The spine queries capabilities and adapts
-caps = adapter.get_capabilities()
-# → {arms: [left, right], base_type: "mecanum", ...}
+# Or specify platform
+robot = create_robot(RobotType.BOOSTER_K1)
+
+# Same API regardless of body
+await robot.adapter.connect()
+robot.start_sensors()
+
+# Identity persists across bodies via Gun.js
+```
+
+### Adding a New Robot
+
+1. Create adapter in `adapters/your_robot.py` implementing `RobotAdapter`
+2. Add camera support in `cameras/` if needed (or use existing OAK-D/ZED)
+3. Add microphone support in `microphones/` if needed
+4. Register in `config/robots.py`
+
+```python
+# adapters/your_robot.py
+class YourRobotAdapter(RobotAdapter):
+    async def connect(self) -> bool: ...
+    async def execute(self, subsystem, action) -> ActionResult: ...
+    def get_capabilities(self) -> Dict[str, Any]: ...
+```
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Identity Layer (Gun.js)                                │
+│  Face embeddings, voice embeddings, memories            │
+│  Syncs across all bodies                                │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│  Perception Layer                                       │
+│  cameras/    → SpatialCamera (OAK-D, ZED, RealSense)   │
+│  microphones/→ MicrophoneArray (ReSpeaker, 6-Mic)      │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│  Adapter Layer                                          │
+│  adapters/   → RobotAdapter (Johnny5, BoosterK1, ...)  │
+│  Translates intents to hardware-specific commands       │
+└─────────────────────────────────────────────────────────┘
 ```
 
 See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for details.
@@ -272,12 +342,16 @@ See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for details
 
 | File | Purpose |
 |------|---------|
+| `robot_factory.py` | Unified entry point - creates robot with adapter, camera, mic |
 | `johnny5.py` | Main entry - Hume EVI WebSocket + face recognition triggers |
 | `motion_coordinator.py` | The "spine" - coordinates all movement, gestures, safety |
-| `adapters/johnny5.py` | Hardware adapter - translates intents to Solo-CLI commands |
+| `adapters/base.py` | Abstract RobotAdapter interface (implement for new robots) |
+| `adapters/booster_k1.py` | Booster K1 adapter (ROS2 bipedal) |
+| `cameras/base.py` | Abstract SpatialCamera interface (OAK-D, ZED, etc.) |
+| `microphones/base.py` | Abstract MicrophoneArray interface (DOA, VAD) |
+| `config/robots.py` | Multi-robot configuration registry |
 | `tools/registry.py` | 50+ tools Hume can call (wave, point, move, etc.) |
-| `doa_spatial_fusion.py` | DOA + OAK-D depth fusion for active speaker identification |
-| `spatial_tracker.py` | OAK-D stereo depth person tracking with 3D positions |
+| `doa_spatial_fusion.py` | DOA + depth fusion for active speaker identification |
 | `terrain_navigation.py` | Autonomous obstacle handling (gaps, rails, cords) |
 | `visual_safety.py` | Fire/smoke detection with auto-alert |
 
