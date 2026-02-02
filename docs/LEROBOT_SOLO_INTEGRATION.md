@@ -68,7 +68,7 @@ Johnny Five uses **dual buses** (ACM0 + ACM1) and adds subsystems LeRobot doesn'
 │   ├── 5: left_wrist_roll
 │   └── 6: left_gripper
 │
-├── Wheels (motors 7-9) - Mecanum (different from omni)
+├── Wheels (motors 7-9) - Omni (3-wheel, same type as LeKiwi)
 │   ├── 7: wheel_front_left
 │   ├── 8: wheel_front_right
 │   └── 9: wheel_back
@@ -129,13 +129,14 @@ HITCH_MOTORS = {
 
 Use case: Towing carts, grabbing charger cables, docking.
 
-#### 4. Mecanum Wheels (Holonomic Drive)
+#### 4. Omni Wheels (Already Supported)
 
-LeKiwi uses omniwheels with 3-wheel configuration. Johnny Five uses 3 mecanum wheels.
+Both LeKiwi and Johnny Five use 3-wheel omniwheel configuration.
+LeRobot already has this - no changes needed for base.
 
 ```python
-# Different kinematics from omniwheel
-MECANUM_BASE = {
+# Same as LeKiwi
+OMNI_BASE = {
     "wheel_front_left": {"id": 7, "mode": "velocity"},
     "wheel_front_right": {"id": 8, "mode": "velocity"},
     "wheel_back": {"id": 9, "mode": "velocity"},
@@ -176,7 +177,7 @@ class Johnny5FollowerConfig(RobotConfig):
     right_arm = ["right_shoulder_pan", "right_shoulder_lift", "right_elbow_flex",
                  "right_wrist_flex", "right_wrist_roll", "right_gripper"]
 
-    # Base (mecanum)
+    # Base (omni)
     base = ["wheel_front_left", "wheel_front_right", "wheel_back"]
 
     # New subsystems
@@ -230,7 +231,6 @@ solo status --ports /dev/ttyACM0,/dev/ttyACM1
    - Gantry subsystem
    - Lift subsystem
    - Hitch subsystem
-   - Mecanum kinematics
 3. **Test on hardware**
 4. **Submit PR** to huggingface/lerobot
 

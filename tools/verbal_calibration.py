@@ -117,7 +117,7 @@ class VerbalCalibration:
         self.subsystem_descriptions = {
             "left_arm": "the left SO101 arm, motors 1 through 6",
             "right_arm": "the right SO101 arm, motors 1 through 6",
-            "base": "the three mecanum wheels for the mobile base",
+            "base": "the three omni wheels for the mobile base",
             "gantry": "the camera pan and tilt servos",
             "lift": "the 30 centimeter lift mechanism",
         }

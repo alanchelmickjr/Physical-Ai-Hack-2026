@@ -76,7 +76,7 @@ See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for detaile
 | **Camera** | OAK-D on 2-DOF gantry | Face detection + depth + head tracking |
 | **Microphone** | ReSpeaker 4-Mic USB Array | Voice ID + DOA (direction of arrival) |
 | **Arms** | Dual SO101 (6-DOF each) | Gestures & manipulation |
-| **Base** | 3-wheel Mecanum | Omnidirectional movement |
+| **Base** | 3-wheel Omni | Omnidirectional movement |
 | **Lift** | 30cm vertical | Height adjustment |
 | **Hitch** | Rear grabber | IKEA cart towing + charger docking |
 | **Power** | Anker Solix 12V | Portable operation |
@@ -284,7 +284,7 @@ Johnny Five is designed to exist in **multiple bodies simultaneously**. The same
 
 | Platform | Camera | Microphone | Locomotion | Status |
 |----------|--------|------------|------------|--------|
-| **Johnny Five** | OAK-D Pro | ReSpeaker 4-Mic | Mecanum wheels | Production |
+| **Johnny Five** | OAK-D Pro | ReSpeaker 4-Mic | Omni wheels | Production |
 | **Booster K1** | ZED X | Circular 6-Mic | Bipedal (22 DOF) | Supported |
 | **Unitree G1** | RealSense D435 | Built-in 4-Mic | Bipedal (23-43 DOF) | Supported |
 

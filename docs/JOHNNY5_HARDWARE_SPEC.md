@@ -5,7 +5,7 @@
 | Bus | Subsystem | Motor IDs | Count | Servo Type |
 |-----|-----------|-----------|-------|------------|
 | ACM0 | Left Arm | 1-6 | 6 | XL330-M288-T |
-| ACM0 | Mecanum Base | 7, 8, 9 | 3 | XL330-M288-T |
+| ACM0 | Omni Base | 7, 8, 9 | 3 | XL330-M288-T |
 | ACM0 | Lift | 10 | 1 | XL330-M288-T |
 | ACM0 | Hitch | 11 | 1 | XL330-M288-T |
 | ACM1 | Right Arm | 1-6 | 6 | XL330-M288-T |
@@ -23,7 +23,7 @@
 │   ├── Motor 4: Wrist pitch
 │   ├── Motor 5: Wrist roll
 │   └── Motor 6: Gripper
-├── Mecanum Base
+├── Omni Base
 │   ├── Motor 7: Front wheel
 │   ├── Motor 8: Back-left wheel
 │   └── Motor 9: Back-right wheel
@@ -94,7 +94,7 @@ The hitch gripper has embedded charging contacts on the inner grip surfaces:
 
 **Why this matters:** A small XL330 servo lets a compact robot tow a full-size IKEA utility cart, demonstrating that you don't need a massive expensive robot to move heavy loads.
 
-## Base Specifications (Mecanum)
+## Base Specifications (Omni)
 
 | Wheel | Motor | Direction |
 |-------|-------|-----------|

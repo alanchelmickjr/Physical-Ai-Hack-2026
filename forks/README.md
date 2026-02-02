@@ -45,7 +45,7 @@ git clone https://github.com/alanchelmickjr/johnny5-solo.git
 ```
 /dev/ttyACM0 (Left Bus):
   - Motors 1-6: Left arm (SO-ARM100)
-  - Motors 7-9: Mecanum wheels
+  - Motors 7-9: Omni wheels
   - Motor 10: Lift
   - Motor 11: Hitch
 

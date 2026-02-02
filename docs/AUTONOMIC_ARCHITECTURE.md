@@ -156,7 +156,7 @@ flowchart TB
         direction LR
 
         subgraph J5["Johnny5Adapter"]
-            J5_CAP["capabilities:<br/>• arms: [left, right]<br/>• arm_dof: 6<br/>• gripper: true<br/>• base: mecanum<br/>• lift: true<br/>• gantry: 2-DOF"]
+            J5_CAP["capabilities:<br/>• arms: [left, right]<br/>• arm_dof: 6<br/>• gripper: true<br/>• base: omni<br/>• lift: true<br/>• gantry: 2-DOF"]
             J5_POSES["poses:<br/>• home<br/>• wave<br/>• point<br/>• arms_up"]
             J5_ACTIONS["actions:<br/>• move_to_position<br/>• gripper<br/>• base_move<br/>• wave<br/>• look_at"]
         end
@@ -401,7 +401,7 @@ class OpenDroidAdapter(RobotAdapter):
             "legs": True,  # Johnny5 has wheels, OpenDroid has legs
             "gripper": True,
             "mobile_base": True,
-            "base_type": "bipedal",  # vs "mecanum"
+            "base_type": "bipedal",  # vs "omni"
         }
 
     async def execute(self, subsystem, action) -> ActionResult:
@@ -431,8 +431,8 @@ if caps.get("base_type") == "bipedal":
     # Use walking instead of wheel velocities
     self._locomotion = BipedalLocomotion(adapter)
 else:
-    # Use mecanum wheel control
-    self._locomotion = MecanumLocomotion(adapter)
+    # Use omni wheel control
+    self._locomotion = OmniLocomotion(adapter)
 ```
 
 ### Capability-Driven Behavior
@@ -442,7 +442,7 @@ The spine doesn't assume hardware - it asks:
 | Capability Query | Johnny5 | OpenDroid | Spine Behavior |
 |-----------------|---------|-----------|----------------|
 | `has_gantry?` | Yes (2-DOF) | No (neck) | Use gantry vs neck for head tracking |
-| `base_type?` | mecanum | bipedal | Wheel velocities vs walk gait |
+| `base_type?` | omni | bipedal | Wheel velocities vs walk gait |
 | `arm_dof?` | 6 | 7 | Adjust IK solver |
 | `has_lift?` | Yes | No (crouch) | Lift vs squat to reach low objects |
 
