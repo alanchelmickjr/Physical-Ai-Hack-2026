@@ -4,7 +4,31 @@ Survey of redundant implementations in the Johnny Five codebase.
 
 ---
 
-## Critical: Motor Configuration (3 Sources of Truth)
+## ✅ CONSOLIDATION COMPLETE
+
+The following consolidation has been applied:
+
+| Issue | Solution | Status |
+|-------|----------|--------|
+| Motor config (3 sources) | `config/hardware.py` is now single source | ✅ Done |
+| Motor ping (3 implementations) | `config/motors.py:MotorInterface.ping()` | ✅ Done |
+| Calibration systems | YAML defines actions, Python executes | ✅ Done |
+| Startup calibration | `actions/startup_calibration.yaml` + motor interface | ✅ Done |
+
+**Files created:**
+- `config/__init__.py` - Package init
+- `config/hardware.py` - `HardwareConfig` single source of truth
+- `config/motors.py` - `MotorInterface` consolidated operations
+- `actions/startup_calibration.yaml` - Movie-style boot sequence
+
+**Files updated to use shared config:**
+- `motion_coordinator.py` - imports from `config.hardware`
+- `adapters/johnny5.py` - imports from `config.hardware`
+- `tools/verbal_calibration.py` - imports from `config.hardware` and `config.motors`
+
+---
+
+## Historical: Motor Configuration (3 Sources of Truth)
 
 The same hardware layout is defined in THREE places:
 
