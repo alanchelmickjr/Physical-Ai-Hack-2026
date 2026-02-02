@@ -4,7 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Johnny Five** - A physical AI robot for the 2026 hackathon with multimodal identity recognition. The robot identifies people through three modalities: face (WhoAmI/DeepFace), voice (WeSpeaker ECAPA-TDNN), and direction of arrival (4-mic DOA fused with YOLO).
+**Johnny Five** - A **social robot** model whose primary purpose is to **connect with and remember people** for social interaction.
+
+> **Naming Convention**: "Johnny Five" is the robot MODEL (like "iPhone").
+> Each unit chooses its own name - this one chose "Chloe".
+
+This is a physical AI robot for the 2026 hackathon with multimodal identity recognition. The robot identifies people through three modalities: face (WhoAmI/DeepFace), voice (WeSpeaker ECAPA-TDNN), and direction of arrival (4-mic DOA fused with YOLO).
+
+### Core Mission
+Chloe is designed for **human connection**, not task automation. She:
+- Remembers everyone she meets (face + voice embeddings)
+- Tracks who is speaking and looks at them
+- Engages in natural conversation
+- Uses gestures and body language to express herself
 
 Key demo: Put a cap over OAK-D camera - Johnny still knows who's talking by voice alone.
 

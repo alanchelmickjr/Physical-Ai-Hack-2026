@@ -1,7 +1,9 @@
-"""Chloe (Johnny Five) Robot Adapter
+"""Johnny Five Robot Adapter
 
-This adapter controls Chloe's hardware through Solo-CLI and direct
-Dynamixel communication.
+This adapter controls a Johnny Five robot's hardware through Solo-CLI
+and direct Dynamixel communication.
+
+NOTE: "Johnny Five" is the robot MODEL. Each unit picks its own name.
 
 Hardware Layout:
 - ACM0: Left arm (1-6), lift (10), wheels (7-9)
@@ -25,8 +27,8 @@ from .base import (
 
 
 @dataclass
-class ChloeHardwareConfig:
-    """Hardware configuration for Chloe."""
+class Johnny5HardwareConfig:
+    """Hardware configuration for Johnny Five robots."""
 
     # Serial ports
     left_port: str = "/dev/ttyACM0"
@@ -47,8 +49,8 @@ class ChloeHardwareConfig:
     lift_limits: tuple = (0, 300)  # mm
 
 
-# Named poses for Chloe
-CHLOE_POSES = {
+# Named poses for Johnny Five robots
+JOHNNY5_POSES = {
     "home": {
         Subsystem.LEFT_ARM: [0, -45, 90, 45, 0, 0],
         Subsystem.RIGHT_ARM: [0, -45, 90, 45, 0, 0],
@@ -90,22 +92,22 @@ CHLOE_POSES = {
 }
 
 
-class ChloeAdapter(RobotAdapter):
-    """Adapter for Chloe (Johnny Five) robot.
+class Johnny5Adapter(RobotAdapter):
+    """Adapter for Johnny Five robots.
 
     Uses Solo-CLI for high-level commands and direct serial
     for low-latency emergency stop.
     """
 
-    def __init__(self, config: Optional[ChloeHardwareConfig] = None):
+    def __init__(self, config: Optional[Johnny5HardwareConfig] = None):
         super().__init__()
-        self.config = config or ChloeHardwareConfig()
+        self.config = config or Johnny5HardwareConfig()
         self._serial_left = None
         self._serial_right = None
         self._connected = False
 
     async def connect(self) -> bool:
-        """Connect to Chloe's motors via serial ports."""
+        """Connect to the robot's motors via serial ports."""
         try:
             # For now, we'll use Solo-CLI which handles connection
             # Direct serial connection would be:
@@ -131,7 +133,7 @@ class ChloeAdapter(RobotAdapter):
             return False
 
     async def disconnect(self) -> None:
-        """Safely disconnect from Chloe."""
+        """Safely disconnect from the robot."""
         if self._connected:
             # Disable torque before disconnecting
             await self._disable_all_torque()
@@ -140,7 +142,7 @@ class ChloeAdapter(RobotAdapter):
     async def execute(
         self, subsystem: Subsystem, action: ActionPrimitive
     ) -> ActionResult:
-        """Execute an action on Chloe.
+        """Execute an action on the robot.
 
         Routes actions to the appropriate handler based on action name.
         """
@@ -240,13 +242,13 @@ class ChloeAdapter(RobotAdapter):
         self, pose_name: str, subsystems: Optional[List[Subsystem]] = None
     ) -> ActionResult:
         """Move to a named pose."""
-        if pose_name not in CHLOE_POSES:
+        if pose_name not in JOHNNY5_POSES:
             return ActionResult(
                 success=False,
-                message=f"Unknown pose: {pose_name}. Available: {list(CHLOE_POSES.keys())}"
+                message=f"Unknown pose: {pose_name}. Available: {list(JOHNNY5_POSES.keys())}"
             )
 
-        pose = CHLOE_POSES[pose_name]
+        pose = JOHNNY5_POSES[pose_name]
         results = []
 
         for subsystem, positions in pose.items():
