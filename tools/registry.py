@@ -187,6 +187,320 @@ class ToolRegistry:
             }
         ))
 
+        # =====================================================================
+        # EXTENDED MOVEMENT COMMANDS
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="spin",
+            description="Spin the robot in place (full 360 or partial)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "enum": ["clockwise", "counterclockwise", "cw", "ccw"],
+                        "description": "Spin direction"
+                    },
+                    "degrees": {
+                        "type": "number",
+                        "default": 360,
+                        "description": "Degrees to spin (default full rotation)"
+                    },
+                    "speed": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 1.0,
+                        "default": 0.5,
+                        "description": "Spin speed"
+                    }
+                },
+                "required": ["direction"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="turn",
+            description="Turn to face a direction or angle",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Direction (left, right, around, behind) or angle in degrees"
+                    },
+                    "speed": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 1.0,
+                        "default": 0.5,
+                        "description": "Turn speed"
+                    }
+                },
+                "required": ["target"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="dance",
+            description="Do a little dance movement",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "style": {
+                        "type": "string",
+                        "enum": ["happy", "silly", "groovy", "victory"],
+                        "default": "happy",
+                        "description": "Dance style"
+                    },
+                    "duration": {
+                        "type": "number",
+                        "default": 3.0,
+                        "description": "How long to dance (seconds)"
+                    }
+                }
+            }
+        ))
+
+        # =====================================================================
+        # EXPRESSIVE MOVEMENT (arms during speech)
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="express",
+            description="Express an emotion through body language",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "emotion": {
+                        "type": "string",
+                        "enum": ["happy", "sad", "excited", "curious", "thinking", "surprised", "confused", "proud", "shy"],
+                        "description": "Emotion to express"
+                    },
+                    "intensity": {
+                        "type": "string",
+                        "enum": ["subtle", "normal", "dramatic"],
+                        "default": "normal",
+                        "description": "How pronounced the expression"
+                    }
+                },
+                "required": ["emotion"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="point_at_person",
+            description="Point at a person by name (rate-limited: once per 2 minutes per person to avoid being rude)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the person to point at"
+                    },
+                    "arm": {
+                        "type": "string",
+                        "enum": ["left", "right", "auto"],
+                        "default": "auto",
+                        "description": "Which arm to use (auto picks based on location)"
+                    },
+                    "context": {
+                        "type": "string",
+                        "enum": ["introduction", "clarification", "emphasis"],
+                        "default": "introduction",
+                        "description": "Why pointing (affects rate limiting)"
+                    }
+                },
+                "required": ["name"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="nod",
+            description="Nod head yes or shake head no",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": ["yes", "no", "maybe"],
+                        "default": "yes",
+                        "description": "Type of head movement"
+                    },
+                    "intensity": {
+                        "type": "string",
+                        "enum": ["subtle", "normal", "emphatic"],
+                        "default": "normal"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="gesture_while_speaking",
+            description="Enable/disable automatic arm gestures during speech",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Whether to gesture while speaking"
+                    },
+                    "style": {
+                        "type": "string",
+                        "enum": ["minimal", "natural", "expressive", "dramatic"],
+                        "default": "natural",
+                        "description": "Gesture style"
+                    }
+                }
+            }
+        ))
+
+        # =====================================================================
+        # FAULT TOLERANCE & RECOVERY
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="check_servos",
+            description="Check which servos are responding and report any missing",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "subsystem": {
+                        "type": "string",
+                        "enum": ["all", "left_arm", "right_arm", "base", "lift", "gantry", "hitch"],
+                        "default": "all",
+                        "description": "Which subsystem to check"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="recover_servo",
+            description="Attempt to recover a non-responding servo",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "bus": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "description": "Which bus"
+                    },
+                    "motor_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 11,
+                        "description": "Motor ID to recover"
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["ping", "reboot", "reset_error", "reconfigure"],
+                        "default": "ping",
+                        "description": "Recovery action to try"
+                    }
+                },
+                "required": ["bus", "motor_id"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="enable_degraded_mode",
+            description="Enable operation with missing servos (work around faults)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "missing_servos": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of missing servo identifiers (e.g., ['left_arm_3', 'gantry_tilt'])"
+                    },
+                    "continue_anyway": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Continue operation despite missing servos"
+                    }
+                },
+                "required": ["missing_servos"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="servo_health_report",
+            description="Get full health report on all servos",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "include_temps": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Include temperature readings"
+                    },
+                    "include_loads": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Include load/torque readings"
+                    }
+                }
+            }
+        ))
+
+        # =====================================================================
+        # SAFETY & HAZARD DETECTION
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="enable_fire_detection",
+            description="Enable visual fire/smoke detection (OAK-D camera)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Enable or disable fire detection"
+                    },
+                    "sensitivity": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                        "default": "medium",
+                        "description": "Detection sensitivity"
+                    },
+                    "auto_alert": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Automatically point at detected fire"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="alert_hazard",
+            description="Alert to a detected hazard (point at it, speak warning)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "hazard_type": {
+                        "type": "string",
+                        "enum": ["fire", "smoke", "obstacle", "person_down", "spill", "unknown"],
+                        "description": "Type of hazard detected"
+                    },
+                    "direction_degrees": {
+                        "type": "number",
+                        "description": "Direction of hazard (DOA angle)"
+                    },
+                    "speak_warning": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Speak a warning about the hazard"
+                    }
+                },
+                "required": ["hazard_type"]
+            }
+        ))
+
         self.register(ToolDefinition(
             name="go_to_pose",
             description="Move the entire robot to a named pose",
