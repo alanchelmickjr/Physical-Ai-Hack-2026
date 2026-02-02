@@ -1,0 +1,263 @@
+"""Tool Registry for Hume EVI
+
+This module provides a registry of tools that can be called by Hume EVI.
+Tools are defined with JSON schemas for automatic integration.
+"""
+
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
+import json
+import functools
+
+
+@dataclass
+class ToolDefinition:
+    """Definition of a tool for Hume EVI."""
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+    handler: Optional[Callable] = None
+
+
+class ToolRegistry:
+    """Registry of tools available to Hume EVI."""
+
+    def __init__(self):
+        self.tools: Dict[str, ToolDefinition] = {}
+        self._register_builtin_tools()
+
+    def register(self, tool: ToolDefinition) -> None:
+        """Register a tool."""
+        self.tools[tool.name] = tool
+
+    def get(self, name: str) -> Optional[ToolDefinition]:
+        """Get a tool by name."""
+        return self.tools.get(name)
+
+    def to_hume_format(self) -> List[Dict]:
+        """Export tools in Hume EVI configuration format."""
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters
+            }
+            for tool in self.tools.values()
+        ]
+
+    def to_json(self) -> str:
+        """Export tools as JSON."""
+        return json.dumps(self.to_hume_format(), indent=2)
+
+    def _register_builtin_tools(self) -> None:
+        """Register built-in robot control tools."""
+
+        self.register(ToolDefinition(
+            name="wave",
+            description="Wave hello or goodbye with robot arm",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "arm": {
+                        "type": "string",
+                        "enum": ["left", "right", "both"],
+                        "default": "right",
+                        "description": "Which arm to wave with"
+                    },
+                    "style": {
+                        "type": "string",
+                        "enum": ["friendly", "excited", "royal", "shy"],
+                        "default": "friendly",
+                        "description": "Style of wave"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="move_arm",
+            description="Move robot arm to a position or named pose",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "arm": {
+                        "type": "string",
+                        "enum": ["left", "right", "both"],
+                        "description": "Which arm to move"
+                    },
+                    "position": {
+                        "type": "string",
+                        "description": "Named pose (home, wave, point, ready) or coordinates"
+                    },
+                    "speed": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 1.0,
+                        "default": 0.5,
+                        "description": "Movement speed"
+                    }
+                },
+                "required": ["arm", "position"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="look_at",
+            description="Point the camera/head to look at something",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "What to look at: person name, object, or direction (left, right, up, down, forward)"
+                    }
+                },
+                "required": ["target"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="pick_object",
+            description="Pick up an object that the robot can see",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "object": {
+                        "type": "string",
+                        "description": "Description of the object to pick up"
+                    },
+                    "hand": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "default": "right",
+                        "description": "Which hand to use"
+                    }
+                },
+                "required": ["object"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="place_object",
+            description="Place a held object somewhere",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "Where to place the object"
+                    },
+                    "hand": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "default": "right"
+                    }
+                },
+                "required": ["location"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="move_base",
+            description="Move the robot's mobile base",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "enum": ["forward", "backward", "left", "right", "rotate_left", "rotate_right"],
+                        "description": "Direction to move"
+                    },
+                    "distance": {
+                        "type": "number",
+                        "description": "Distance in meters (or degrees for rotation)",
+                        "default": 0.5
+                    }
+                },
+                "required": ["direction"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="stop",
+            description="Immediately stop all robot movement",
+            parameters={
+                "type": "object",
+                "properties": {}
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="go_to_pose",
+            description="Move the entire robot to a named pose",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pose": {
+                        "type": "string",
+                        "enum": ["home", "ready", "wave", "point", "arms_up", "arms_down"],
+                        "description": "Name of the pose"
+                    }
+                },
+                "required": ["pose"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="gripper",
+            description="Control the gripper on an arm",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "arm": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "default": "right"
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["open", "close", "toggle"],
+                        "default": "toggle"
+                    }
+                }
+            }
+        ))
+
+
+def tool(name: str, description: str, **params):
+    """Decorator to register a function as a tool.
+
+    Example:
+        @tool("wave", "Wave hello", arm={"type": "string", "enum": ["left", "right"]})
+        async def wave_handler(arm: str = "right"):
+            await robot.wave(arm)
+    """
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            return await func(*args, **kwargs)
+
+        # Store tool metadata
+        wrapper._tool_definition = ToolDefinition(
+            name=name,
+            description=description,
+            parameters={
+                "type": "object",
+                "properties": params
+            },
+            handler=wrapper
+        )
+        return wrapper
+    return decorator
+
+
+# Global registry instance
+_registry = None
+
+
+def get_registry() -> ToolRegistry:
+    """Get the global tool registry."""
+    global _registry
+    if _registry is None:
+        _registry = ToolRegistry()
+    return _registry
