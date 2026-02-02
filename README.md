@@ -1,92 +1,108 @@
 # Physical AI Hack 2026: Johnny Five
 
-> **"Number 5 is alive!"** — A multimodal identity robot that knows who you are.
+> **"Number 5 is alive!"** — A social robot that connects with and remembers people.
 
 ![Hackathon](https://img.shields.io/badge/Physical%20AI-Hack%202026-blue)
-![Status](https://img.shields.io/badge/Face%20Recognition-Working-green)
+![Status](https://img.shields.io/badge/Status-Functional-green)
 ![Platform](https://img.shields.io/badge/Jetson-Orin%208GB-orange)
+![Servos](https://img.shields.io/badge/Servos-19-purple)
 
 ---
 
 ## What is Johnny Five?
 
-Johnny Five is a robot that identifies people through **multiple modalities**:
+**Johnny Five** is a robot MODEL (like "iPhone"). Each unit picks its own name — this one chose **Chloe**.
 
-| Modality | Technology | Status |
-|----------|------------|--------|
-| **Face** | WhoAmI + YOLO + face_recognition | ✅ Working |
-| **Voice Conversation** | Hume EVI + ReSpeaker 4-mic | ✅ Working |
-| **Voice ID** | WeSpeaker ECAPA-TDNN | 🚧 Next |
-| **Direction** | 4-mic DOA array | 🚧 Planned |
+Chloe is designed for **human connection**, not task automation. She:
+- Remembers everyone she meets (face + voice embeddings)
+- Tracks who is speaking and looks at them
+- Engages in natural emotional conversation
+- Uses gestures and body language to express herself
+- Detects safety hazards (fire, cords) and alerts humans
 
-**The demo:** Johnny 5 sees you, greets you by name, and talks with you using emotional voice.
+**Key demo:** Cover the camera with a cap — Chloe still knows who's talking by voice alone.
 
 ---
 
-## Hardware Stack
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  HUME EVI (Conscious Mind)                              │
+│  Conversation, personality, decisions                   │
+│  "Hello Alan!" → greets by name                         │
+└────────────────────────┬────────────────────────────────┘
+                         │ events
+┌────────────────────────▼────────────────────────────────┐
+│  SPINE (Autonomic / Muscle Memory)                      │
+│  Reflexes that run automatically:                       │
+│  • Head tracking (look at speaker)                      │
+│  • Gestures while talking                               │
+│  • Fire/smoke detection → alert                         │
+│  • Terrain navigation (gaps, cords, rails)              │
+└────────────────────────┬────────────────────────────────┘
+                         │ adapter
+┌────────────────────────▼────────────────────────────────┐
+│  HARDWARE (19 Servos via Solo-CLI)                      │
+│  ACM0: Left arm, wheels, lift, hitch                    │
+│  ACM1: Right arm, gantry                                │
+└─────────────────────────────────────────────────────────┘
+```
+
+See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for detailed diagrams.
+
+---
+
+## Hardware
 
 | Component | Spec | Purpose |
 |-----------|------|---------|
 | **Brain** | Jetson Orin 8GB | Edge AI inference |
-| **Camera** | OAK-D S3 | Face detection + depth |
-| **Display** | 7" Touchscreen (800x480) | Fullscreen UI |
-| **Arms** | Dual SO101 (AlohaMini) | Gestures & interaction |
-| **Mic** | 4-way USB array | Voice ID + DOA |
+| **Camera** | OAK-D on 2-DOF gantry | Face detection + depth + head tracking |
+| **Microphone** | ReSpeaker 4-Mic USB Array | Voice ID + DOA (direction of arrival) |
+| **Arms** | Dual SO101 (6-DOF each) | Gestures & manipulation |
+| **Base** | 3-wheel Mecanum | Omnidirectional movement |
+| **Lift** | 30cm vertical | Height adjustment |
+| **Hitch** | Rear grabber | IKEA cart towing + charger docking |
 | **Power** | Anker Solix 12V | Portable operation |
+
+### Motor Layout (19 Servos)
+
+| Bus | Subsystem | Motor IDs | Count |
+|-----|-----------|-----------|-------|
+| ACM0 | Left Arm | 1-6 | 6 |
+| ACM0 | Wheels | 7-9 | 3 |
+| ACM0 | Lift | 10 | 1 |
+| ACM0 | Hitch | 11 | 1 |
+| ACM1 | Right Arm | 1-6 | 6 |
+| ACM1 | Gantry | 7-8 | 2 |
+
+All servos: Dynamixel XL330-M288-T, Protocol 2.0
 
 ---
 
-## Current Status
+## Features
 
-### ✅ Face Recognition (WhoAmI)
+### Multimodal Identity
+| Modality | Technology | Status |
+|----------|------------|--------|
+| **Face** | WhoAmI + YOLO + DeepFace | Working |
+| **Voice Conversation** | Hume EVI + ReSpeaker | Working |
+| **Voice ID** | WeSpeaker ECAPA-TDNN (192-d) | Working |
+| **Direction of Arrival** | SRP-PHAT 4-mic fusion | Working |
 
-Face recognition is **live and working** on the Jetson Orin:
+### Autonomic Behaviors (Always Running)
+- **Head Tracking** — Gantry follows speaker via DOA
+- **Expressive Gestures** — Arms move naturally while speaking
+- **Polite Pointing** — Points at person when first mentioning name (rate-limited, not rude)
+- **Fire Detection** — Both arms point + twitch at fire (visible even with headphones)
+- **Terrain Navigation** — Detects elevator gaps, door rails, cords
 
-- **8 enrolled faces**: AL, Jordan, Sam, Jack, Vitaly, Armin, Emerson, Tigran
-- **YOLO v8** for person detection
-- **face_recognition** library (128-d embeddings)
-- **Temporal smoothing** — names lock after 2 positive IDs, no flickering
-- **Fullscreen display** on 7" touchscreen
-
-```
-Green box = Known person (name displayed)
-Yellow box = Unidentified
-* prefix = Identity locked (high confidence)
-```
-
-### ✅ Voice Conversation (Hume EVI)
-
-Emotional voice conversation is **live and working**:
-
-- **Hume AI EVI** for emotional, natural voice responses
-- **ReSpeaker 4-Mic Array** for voice input
-- **Johnny 5 Persona** — speaks with curiosity and enthusiasm
-- **Face → Voice Integration** — greets people by name when recognized
-- **HDMI Audio Output** for speaker playback
-- **Acoustic Echo Prevention** — mic auto-mutes during speech to prevent feedback loops
-- **Latency Instrumentation** — millisecond timing for debugging
-
-```
-[06:02:39.098] Connected! Number 5 is alive! (connect took 581ms)
-[06:02:45.123] FACE DETECTED: Hello Jordan!
-[06:02:45.789] FIRST AUDIO CHUNK (96044 bytes) - latency: 664ms
-[06:02:45.789] MIC MUTED (audio playing)
-[06:02:48.043] AUDIO COMPLETE: 4 chunks, 327974 bytes, 2254ms playback
-[06:02:48.343] MIC UNMUTED (audio done)
-```
-
-### 🚧 Voice Recognition (Next)
-
-WeSpeaker ECAPA-TDNN for speaker identification:
-- 192-d voice embeddings
-- Works even when camera is covered
-- Silero VAD for speech detection
-
-### 🚧 Direction of Arrival (Planned)
-
-4-mic array fusion with YOLO:
-- Know WHO is speaking, not just detect speech
-- Fuse audio direction with face bounding boxes
+### Safety Features
+- **Fire/Smoke Detection** — Visual detection via OAK-D
+- **Cord Avoidance** — Detects and goes around floor cables
+- **Wheel Drag Detection** — Emergency stop if cord caught
+- **Emergency Stop** — Direct torque disable on all motors
 
 ---
 
@@ -94,20 +110,37 @@ WeSpeaker ECAPA-TDNN for speaker identification:
 
 ```
 Physical-Ai-Hack-2026/
-├── README.md              # You are here
-├── CLAUDE.md              # AI assistant context
-├── johnny5.py             # Hume EVI voice conversation (main)
-├── whoami_full.py         # Face recognition with temporal smoothing
-├── start_johnny5.sh       # Launches both services
-├── enroll_face.py         # Add new faces to database
-├── docs/                  # Planning & architecture
-│   ├── JOHNNY5_FLOW_ANALYSIS.md   # Voice flow diagrams & debugging
-│   ├── JOHNNY5_MULTIMODAL_IDENTITY.md
+├── README.md                    # You are here
+├── CLAUDE.md                    # AI assistant context
+│
+├── johnny5.py                   # Hume EVI voice conversation (main entry)
+├── motion_coordinator.py        # Spine - autonomic movement control
+├── head_tracker.py              # DOA → gantry head tracking
+├── doa_reader.py                # ReSpeaker direction of arrival
+├── terrain_navigation.py        # Gap/cord/rail detection & crossing
+├── visual_safety.py             # Fire/smoke detection
+├── led_controller.py            # ReSpeaker LED feedback
+├── johnny5_body.py              # Body movement abstraction
+├── whoami_full.py               # Face recognition with temporal smoothing
+│
+├── adapters/                    # Hardware abstraction layer
+│   ├── base.py                  # Abstract RobotAdapter interface
+│   └── johnny5.py               # Solo-CLI implementation for Chloe
+│
+├── tools/                       # Hume EVI tool system
+│   ├── registry.py              # 50+ tool definitions
+│   ├── engine.py                # Tool execution with dependencies
+│   ├── realtime.py              # 30Hz command queue
+│   └── verbal_calibration.py    # Human-assisted motor setup
+│
+├── docs/                        # Architecture & planning
+│   ├── AUTONOMIC_ARCHITECTURE.md    # Hume ↔ Spine ↔ Adapter diagrams
+│   ├── JOHNNY5_HARDWARE_SPEC.md     # 19-servo layout & calibration
+│   ├── HUME_EVI_ROBOT_CONTROL_PLAN.md
 │   └── ...
-├── whoami/                # Face recognition system (submodule)
-├── AlohaMini/             # Robot arm control (submodule)
-├── XLeRobot/              # Motor/teleoperation (submodule)
-└── lets-connect/          # Networking utilities
+│
+└── forks/                       # Modified dependencies
+    └── chloe-lerobot/           # LeRobot fork with Chloe config
 ```
 
 ---
@@ -116,108 +149,88 @@ Physical-Ai-Hack-2026/
 
 ### Run the Full Demo
 
-Double-click the **Johnny 5 Demo** icon on the Jetson desktop, or:
-
 ```bash
+# SSH to Jetson
 ssh robbie@192.168.88.44  # password: robot
-cd /home/robbie
+
+# Start everything
 ./start_johnny5.sh
 ```
 
-This starts both face recognition AND voice conversation. Johnny 5 will:
+Johnny 5 will:
 1. See you through the camera
 2. Recognize your face
-3. Greet you by name with emotional voice
-4. Chat with you using Hume AI's EVI
+3. Track you with the gantry as you speak
+4. Greet you by name with emotional voice
+5. Gesture naturally during conversation
 
 ### Run Components Separately
 
-**Face Recognition Only:**
 ```bash
+# Face recognition only
 DISPLAY=:0 python3 whoami_full.py
-```
 
-**Voice Only:**
-```bash
+# Voice conversation only
 python3 johnny5.py
+
+# Test head tracking
+python3 head_tracker.py
+
+# Test motor control
+solo robo --port /dev/ttyACM0 --ids 1,2,3,4,5,6 --status
 ```
 
-### Enroll a New Face
+### Calibrate Motors
 
 ```bash
-python3 enroll_face.py "YourName"
-# Press SPACE to capture, Q to quit
+# Interactive calibration with voice guidance
+python3 tools/verbal_calibration.py
+
+# Or via Solo-CLI
+solo robo --calibrate all
 ```
 
 ---
 
-## The Tech
+## Platform Portability
 
-### Face Recognition Pipeline
-
-```
-OAK-D Camera
-    ↓
-YOLO v8 (person detection, class 0)
-    ↓
-Extract face region (upper 40% of bbox)
-    ↓
-face_recognition (128-d embeddings)
-    ↓
-Compare to enrolled faces (threshold < 0.55)
-    ↓
-Temporal smoothing (ignore "Unidentified" votes)
-    ↓
-Lock identity after 2 positive matches
-    ↓
-Display with colored bounding box
-```
-
-### Voice Conversation Pipeline
-
-```
-Face Recognition (whoami_full.py)
-    ↓
-Writes greeting to /tmp/johnny5_greeting.txt
-    ↓
-johnny5.py polls file every 0.5s
-    ↓
-Sends to Hume EVI via WebSocket
-    ↓
-Hume processes with emotional AI
-    ↓
-Audio chunks stream back (base64)
-    ↓
-MIC MUTED → Audio plays via HDMI → MIC UNMUTED
-```
-
-See [docs/JOHNNY5_FLOW_ANALYSIS.md](docs/JOHNNY5_FLOW_ANALYSIS.md) for detailed architecture diagrams.
-
-### Key Innovation: Smart Smoothing
-
-Previous approaches flickered between names. Our solution:
+The adapter pattern allows the same spine to run on different robots:
 
 ```python
-class TrackedPerson:
-    def vote(self, name, conf):
-        # Only count REAL names, not Unidentified
-        if name != "Unidentified":
-            self.name_votes[name] += 1
-            if self.name_votes[best_name] >= 2:
-                self.locked_name = best_name  # Lock it!
+# Johnny5 (this robot)
+adapter = Johnny5Adapter()  # Solo-CLI → Dynamixel
+
+# Future: OpenDroids
+adapter = OpenDroidAdapter()  # Different motors, same spine
+
+# The spine queries capabilities and adapts
+caps = adapter.get_capabilities()
+# → {arms: [left, right], base_type: "mecanum", ...}
 ```
 
-This means:
-- ✅ Positive IDs accumulate
-- ✅ "Unidentified" frames are ignored
-- ✅ Identity locks after consistent recognition
-- ✅ No more AL → Unknown → AL flickering
+See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for details.
 
 ---
 
-## Team
+## Key Files
 
-Built overnight for Physical AI Hack 2026.
+| File | Purpose |
+|------|---------|
+| `johnny5.py` | Main entry - Hume EVI WebSocket + face recognition triggers |
+| `motion_coordinator.py` | The "spine" - coordinates all movement, gestures, safety |
+| `adapters/johnny5.py` | Hardware adapter - translates intents to Solo-CLI commands |
+| `tools/registry.py` | 50+ tools Hume can call (wave, point, move, etc.) |
+| `terrain_navigation.py` | Autonomous obstacle handling (gaps, rails, cords) |
+| `visual_safety.py` | Fire/smoke detection with auto-alert |
+
+---
+
+## Documentation
+
+- [AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) — Hume ↔ Spine ↔ Adapter with mermaid diagrams
+- [JOHNNY5_HARDWARE_SPEC.md](docs/JOHNNY5_HARDWARE_SPEC.md) — 19-servo layout, calibration, motor IDs
+- [HUME_EVI_ROBOT_CONTROL_PLAN.md](docs/HUME_EVI_ROBOT_CONTROL_PLAN.md) — Tool execution architecture
+- [JOHNNY5_FLOW_ANALYSIS.md](docs/JOHNNY5_FLOW_ANALYSIS.md) — Voice pipeline debugging
 
 ---
 
@@ -225,11 +238,10 @@ Built overnight for Physical AI Hack 2026.
 
 - [Hume AI EVI](https://hume.ai) — Emotional voice interface
 - [WhoAmI](https://github.com/alanchelmickjr/whoami) — Face recognition for OAK-D
-- [AlohaMini](https://github.com/alanch/alohamini) — Dual arm robot control
-- [XLeRobot](https://github.com/alanch/xlerobot) — Teleoperation framework
-- [face_recognition](https://github.com/ageitgey/face_recognition) — dlib-based face embeddings
-- [WeSpeaker](https://github.com/wenet-e2e/wespeaker) — Speaker verification
+- [WeSpeaker](https://github.com/wenet-e2e/wespeaker) — Speaker verification (192-d embeddings)
+- [Solo-CLI](https://github.com/huggingface/lerobot) — Dynamixel motor control
 - [ReSpeaker](https://wiki.seeedstudio.com/ReSpeaker_4_Mic_Array_for_Raspberry_Pi/) — 4-mic USB array
+- [face_recognition](https://github.com/ageitgey/face_recognition) — dlib-based face embeddings
 
 ---
 
