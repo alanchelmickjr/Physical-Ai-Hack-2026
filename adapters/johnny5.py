@@ -209,7 +209,7 @@ class Johnny5Adapter(RobotAdapter):
             "arm_dof": 6,
             "gripper": True,
             "mobile_base": True,
-            "base_type": "mecanum",
+            "base_type": "omni",
             "lift": True,
             "lift_range_mm": (0, 300),
             "gantry": True,
@@ -355,12 +355,12 @@ class Johnny5Adapter(RobotAdapter):
         )
 
     async def _base_move(self, params: Dict) -> ActionResult:
-        """Move the mecanum base."""
+        """Move the omni base."""
         direction = params.get("direction", "stop")
         speed = params.get("speed", 0.3)
         duration = params.get("duration", 1.0)
 
-        # Mecanum wheel velocities for each direction
+        # Omni wheel velocities for each direction
         # [front, back_left, back_right]
         velocities = {
             "forward": [1, 1, 1],
@@ -767,7 +767,7 @@ class Johnny5Adapter(RobotAdapter):
         )
 
     async def calibrate_base(self, mode: str = "wheel_test") -> ActionResult:
-        """Calibrate the mecanum base."""
+        """Calibrate the omni base."""
         port = self.config.LEFT_PORT
         ids = self.config.WHEEL_IDS
 

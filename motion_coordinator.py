@@ -658,12 +658,12 @@ class MotionCoordinator:
             print(f"Gantry move error: {e}")
 
     async def _rotate_base(self, degrees: float):
-        """Rotate the mecanum base.
+        """Rotate the omni base.
 
         Args:
             degrees: Rotation angle (positive = clockwise/right)
         """
-        # Mecanum wheels: rotate by driving opposite sides opposite directions
+        # Omni wheels: rotate by driving opposite sides opposite directions
         # This is simplified - real implementation needs odometry
 
         # Estimate time based on rotation speed

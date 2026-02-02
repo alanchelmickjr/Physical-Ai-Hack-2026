@@ -19,7 +19,7 @@ category: reference
 # =============================================================================
 # ACM0 (/dev/ttyACM0) - Left Side:
 #   - left_arm: IDs 1-6 (SO101 6-DOF arm)
-#   - base: IDs 7-9 (mecanum wheels)
+#   - base: IDs 7-9 (omni wheels)
 #   - lift: ID 10 (30cm vertical lift)
 #
 # ACM1 (/dev/ttyACM1) - Right Side:

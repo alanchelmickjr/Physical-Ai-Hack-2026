@@ -94,7 +94,7 @@ solo robo --safety-limits       # Enforce Chloe's joint limits
 
 **Why Fork:**
 - Different motor IDs than default AlohaMini
-- Custom wheel arrangement (mecanum)
+- Custom wheel arrangement (omni)
 - Different lift motor configuration
 - Add Hume EVI integration layer
 
@@ -116,8 +116,8 @@ robot:
 
   base:
     port: /dev/ttyACM0
-    motor_ids: [7, 8, 9]  # Mecanum wheels
-    type: mecanum
+    motor_ids: [7, 8, 9]  # Omni wheels
+    type: omni
 
   lift:
     port: /dev/ttyACM0
@@ -619,7 +619,7 @@ class ChloeRobotAdapter(RobotAdapter):
         self.config = {
             "left_arm": {"port": "/dev/ttyACM0", "ids": [1,2,3,4,5,6]},
             "right_arm": {"port": "/dev/ttyACM1", "ids": [1,2,3,4,5,6]},
-            "base": {"port": "/dev/ttyACM0", "ids": [7,8,9], "type": "mecanum"},
+            "base": {"port": "/dev/ttyACM0", "ids": [7,8,9], "type": "omni"},
             "lift": {"port": "/dev/ttyACM0", "ids": [10]},
             "gantry": {"port": "/dev/ttyACM1", "ids": [7,8]},
         }
@@ -730,7 +730,7 @@ class ChloeRobotAdapter(RobotAdapter):
             "arms": ["left", "right"],
             "gripper": True,
             "mobile_base": True,
-            "base_type": "mecanum",
+            "base_type": "omni",
             "lift": True,
             "gantry": True,
             "camera": "OAK-D",

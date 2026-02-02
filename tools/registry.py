@@ -700,7 +700,7 @@ class ToolRegistry:
 
         self.register(ToolDefinition(
             name="calibrate_base",
-            description="Calibrate the mecanum wheel base",
+            description="Calibrate the omni wheel base",
             parameters={
                 "type": "object",
                 "properties": {

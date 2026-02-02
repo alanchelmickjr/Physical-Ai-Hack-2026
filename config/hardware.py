@@ -141,7 +141,7 @@ class HardwareConfig:
 
     @property
     def base(self) -> SubsystemConfig:
-        """3-wheel mecanum base."""
+        """3-wheel omni base."""
         return SubsystemConfig(
             name="base",
             bus=Bus.ACM0,
