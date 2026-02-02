@@ -1,15 +1,16 @@
 # Johnny Five Hardware Specification
 
-## Motor Count: 18 Servos Total
+## Motor Count: 19 Servos Total
 
 | Bus | Subsystem | Motor IDs | Count | Servo Type |
 |-----|-----------|-----------|-------|------------|
 | ACM0 | Left Arm | 1-6 | 6 | XL330-M288-T |
 | ACM0 | Mecanum Base | 7, 8, 9 | 3 | XL330-M288-T |
 | ACM0 | Lift | 10 | 1 | XL330-M288-T |
+| ACM0 | Hitch | 11 | 1 | XL330-M288-T |
 | ACM1 | Right Arm | 1-6 | 6 | XL330-M288-T |
 | ACM1 | Gantry | 7, 8 | 2 | XL330-M288-T |
-| **Total** | | | **18** | |
+| **Total** | | | **19** | |
 
 ## Bus Layout
 
@@ -26,8 +27,10 @@
 │   ├── Motor 7: Front wheel
 │   ├── Motor 8: Back-left wheel
 │   └── Motor 9: Back-right wheel
-└── Lift
-    └── Motor 10: Vertical lift (300mm travel)
+├── Lift
+│   └── Motor 10: Vertical lift (300mm travel)
+└── Hitch (Rear Grabber)
+    └── Motor 11: IKEA cart tow / charger dock
 
 /dev/ttyACM1 (Right Bus - Waveshare on back)
 ├── Right SO101 Arm
@@ -69,6 +72,28 @@
 | Home Position | 150mm (center) |
 | Speed | 50mm/s max |
 
+## Hitch Specifications (Rear Grabber)
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Motor ID | 11 | On ACM0 bus |
+| Range | 0° to 80° | Open to closed |
+| Home (Open) | 0° | Released |
+| Closed | 80° | Grabbed/docked |
+| Grip Force | ~500g | Similar to arm grippers |
+
+**Embedded Charging Contacts:**
+The hitch gripper has embedded charging contacts on the inner grip surfaces:
+- **Docking Mode**: Contacts engage with charger dock connector → robot charges
+- **Tow Mode**: IKEA cart handle never touches contacts → mechanical grip only, no electrical connection
+
+**Use Cases:**
+- **IKEA Cart Tow**: Mechanical grab of cart handle, no electrical contact
+- **Charger Dock**: Grip + electrical contact for autonomous charging
+- **Rear Object Grab**: Pick up items behind the robot
+
+**Why this matters:** A small XL330 servo lets a compact robot tow a full-size IKEA utility cart, demonstrating that you don't need a massive expensive robot to move heavy loads.
+
 ## Base Specifications (Mecanum)
 
 | Wheel | Motor | Direction |
@@ -89,7 +114,7 @@ Movement vectors:
 
 ### 1. Pre-Flight Check
 ```
-solo scan --port /dev/ttyACM0  # Should find IDs 1-10
+solo scan --port /dev/ttyACM0  # Should find IDs 1-11
 solo scan --port /dev/ttyACM1  # Should find IDs 1-8
 ```
 
@@ -152,6 +177,25 @@ solo robo --port /dev/ttyACM0 --ids 7,8,9 --velocities 50,50,50 --duration 1
 solo robo --port /dev/ttyACM0 --ids 7,8,9 --velocities 50,-50,50 --duration 1
 ```
 
+### 6. Hitch Calibration (Rear Grabber)
+```bash
+# 1. Disable torque
+solo robo --port /dev/ttyACM0 --ids 11 --torque off
+
+# 2. Manually open fully (0° position)
+
+# 3. Set home
+solo robo --port /dev/ttyACM0 --ids 11 --set-home
+
+# 4. Enable torque
+solo robo --port /dev/ttyACM0 --ids 11 --torque on
+
+# 5. Test open/close
+solo robo --port /dev/ttyACM0 --ids 11 --positions 0 --speed 0.3   # Open
+solo robo --port /dev/ttyACM0 --ids 11 --positions 80 --speed 0.3  # Closed
+solo robo --port /dev/ttyACM0 --ids 11 --positions 0 --speed 0.3   # Open
+```
+
 ## Diagnostic Commands
 
 ### Scan for Motors
@@ -182,16 +226,31 @@ solo robo --port $PORT --ids $OLD_ID --set-id $NEW_ID
 solo robo --port $PORT --ids $ID --reboot
 ```
 
-## Alternative Motor Layouts
+## Motor ID Layouts Comparison
 
-Some AlohaMini documentation uses different IDs:
+Different builds use different motor IDs. Johnny5 uses clean sequential numbering:
 
-| Variant | Base Motors | Lift Motor |
-|---------|-------------|------------|
-| Johnny5 (ours) | 7, 8, 9 | 10 |
-| AlohaMini v1 | 8, 9, 10 | 7 |
+| Subsystem | Johnny5 | LeKiwi | Why Johnny5 is cleaner |
+|-----------|---------|--------|------------------------|
+| Left Arm | 1-6 | 1-6 | Same |
+| Right Arm | 1-6 | 1-6 | Same |
+| Base Wheels | 7, 8, 9 | 8, 9, 10 | Sequential after arm |
+| Lift | 10 | 11 | Sequential after base |
+| Hitch | 11 | N/A | Johnny5 only |
+| Gantry | 7, 8 (ACM1) | N/A | Johnny5 only |
 
-The verbal calibration system can detect and adapt to these variations.
+**Johnny5 ID Logic:**
+```
+ACM0: [Arm 1-6] [Base 7-9] [Lift 10] [Hitch 11]
+ACM1: [Arm 1-6] [Gantry 7-8]
+```
+
+This makes it easy to remember:
+- Arms always 1-6
+- Everything else starts at 7 and goes up
+- Each bus handles one arm plus accessories
+
+The verbal calibration system can detect and adapt to any layout variation.
 
 ## Safety Limits
 

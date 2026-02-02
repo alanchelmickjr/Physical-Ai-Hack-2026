@@ -475,6 +475,85 @@ class ToolRegistry:
         ))
 
         # =====================================================================
+        # HITCH CONTROL (Rear Grabber)
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="hitch",
+            description="Control the rear hitch/grabber for cart towing or charger docking",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["open", "close", "toggle", "dock", "release"],
+                        "description": "Hitch action (dock=close+verify contact, release=open)"
+                    },
+                    "grip_percent": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Grip percentage (0=open, 100=closed)"
+                    }
+                },
+                "required": ["action"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="calibrate_hitch",
+            description="Calibrate the rear hitch/grabber mechanism",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["full", "range_test", "set_home"],
+                        "default": "full",
+                        "description": "Calibration mode"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="tow_cart",
+            description="Enter tow mode: grab IKEA cart and configure for transport",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["attach", "detach", "status"],
+                        "default": "attach",
+                        "description": "Tow action"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="dock_charger",
+            description="Dock with charging station using rear hitch",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["dock", "undock", "status"],
+                        "default": "dock",
+                        "description": "Docking action"
+                    },
+                    "verify_charge": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Verify charging contact is made"
+                    }
+                }
+            }
+        ))
+
+        # =====================================================================
         # FULL SYSTEM SETUP
         # =====================================================================
 
@@ -488,9 +567,9 @@ class ToolRegistry:
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "enum": ["scan", "calibrate_arms", "calibrate_gantry", "calibrate_lift", "calibrate_base", "test_all"]
+                            "enum": ["scan", "calibrate_arms", "calibrate_gantry", "calibrate_lift", "calibrate_base", "calibrate_hitch", "test_all"]
                         },
-                        "default": ["scan", "calibrate_arms", "calibrate_gantry"],
+                        "default": ["scan", "calibrate_arms", "calibrate_gantry", "calibrate_hitch"],
                         "description": "Which setup steps to run"
                     }
                 }
@@ -507,9 +586,9 @@ class ToolRegistry:
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "enum": ["left_arm", "right_arm", "gantry", "lift", "base"]
+                            "enum": ["left_arm", "right_arm", "gantry", "lift", "base", "hitch"]
                         },
-                        "default": ["left_arm", "right_arm", "gantry"],
+                        "default": ["left_arm", "right_arm", "gantry", "hitch"],
                         "description": "Which subsystems to test"
                     },
                     "verbose": {
@@ -535,7 +614,7 @@ class ToolRegistry:
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "enum": ["left_arm", "right_arm", "gantry", "lift", "base", "all"]
+                            "enum": ["left_arm", "right_arm", "gantry", "lift", "base", "hitch", "all"]
                         },
                         "default": ["all"],
                         "description": "Which subsystems to save"
