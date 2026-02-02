@@ -1,0 +1,149 @@
+# actions/startup_calibration.yaml
+# Movie-style startup sequence - Johnny Five wiggles all servos on boot
+# "Number 5 is ALIVE!"
+name: startup_calibration
+version: "1.0"
+description: "Full diagnostic wiggle test on startup - like Johnny Five in the movie"
+category: calibration
+
+parameters:
+  speak:
+    type: boolean
+    default: true
+    description: "Announce what's happening"
+  skip_base:
+    type: boolean
+    default: false
+    description: "Skip wheel motors (if robot shouldn't move)"
+
+# Startup sequence - runs automatically on boot
+execution:
+  type: calibration_sequence
+  cli_tool: solo
+
+  steps:
+    # Announce startup
+    - name: announce_startup
+      condition: "{{speak}}"
+      action: speak
+      params:
+        text: "Good morning! Running startup diagnostics."
+
+    # Scan all motors first
+    - name: scan_all
+      action: scan_all_banks
+      speak: "Scanning all motor banks..."
+
+    # Center gantry (camera should look forward)
+    - name: center_gantry
+      action: move_gantry
+      params:
+        pan: 0
+        tilt: 0
+        speed: 0.3
+      speak: "Centering camera."
+
+    # Test left arm - wiggle each joint
+    - name: wiggle_left_arm
+      action: wiggle_subsystem
+      params:
+        subsystem: left_arm
+        sequential: true
+      speak: "Testing left arm."
+
+    # Test right arm - wiggle each joint
+    - name: wiggle_right_arm
+      action: wiggle_subsystem
+      params:
+        subsystem: right_arm
+        sequential: true
+      speak: "Testing right arm."
+
+    # Test gantry - pan left, right, center, tilt up, down, center
+    - name: test_gantry_pan
+      action: move_gantry
+      params:
+        pan: -45
+        tilt: 0
+        speed: 0.5
+    - name: test_gantry_pan_right
+      action: move_gantry
+      params:
+        pan: 45
+        tilt: 0
+        speed: 0.5
+    - name: test_gantry_tilt_up
+      action: move_gantry
+      params:
+        pan: 0
+        tilt: -30
+        speed: 0.5
+    - name: test_gantry_tilt_down
+      action: move_gantry
+      params:
+        pan: 0
+        tilt: 30
+        speed: 0.5
+    - name: center_gantry_final
+      action: move_gantry
+      params:
+        pan: 0
+        tilt: 0
+        speed: 0.3
+      speak: "Camera ready."
+
+    # Test lift
+    - name: test_lift_up
+      action: move_lift
+      params:
+        position: 200
+        speed: 0.3
+    - name: test_lift_down
+      action: move_lift
+      params:
+        position: 50
+        speed: 0.3
+    - name: lift_home
+      action: move_lift
+      params:
+        position: 150
+        speed: 0.3
+      speak: "Lift ready."
+
+    # Test base (if not skipped)
+    - name: test_base
+      condition: "not {{skip_base}}"
+      action: wiggle_subsystem
+      params:
+        subsystem: base
+        sequential: false
+      speak: "Base motors ready."
+
+    # Final announcement
+    - name: announce_ready
+      condition: "{{speak}}"
+      action: speak
+      params:
+        text: "All systems nominal. Ready for interaction."
+
+# Triggers
+triggers:
+  - pattern: "startup|boot|wake up|good morning"
+    action: startup_calibration
+    params:
+      speak: true
+
+  - pattern: "run diagnostics|system check|self test"
+    action: startup_calibration
+    params:
+      speak: true
+
+  - pattern: "calibrate.*all|full calibration"
+    action: startup_calibration
+    params:
+      speak: true
+
+# On boot - auto-run
+auto_run:
+  on_startup: true
+  delay_ms: 1000  # Wait 1 second after boot before starting

@@ -1,0 +1,53 @@
+# actions/servo_banks.yaml
+# REFERENCE ONLY - Hardware config is in config/hardware.py
+#
+# This file documents the dual servo bank layout for Johnny Five (Chloe).
+# The authoritative source is: config.hardware.HardwareConfig
+#
+# To use in Python:
+#   from config.hardware import get_hardware_config
+#   config = get_hardware_config()
+#   print(config.LEFT_ARM_IDS)  # (1, 2, 3, 4, 5, 6)
+#
+name: servo_banks
+version: "1.0"
+description: "Reference for dual Feetech servo bank layout"
+category: reference
+
+# =============================================================================
+# Hardware Layout Summary
+# =============================================================================
+# ACM0 (/dev/ttyACM0) - Left Side:
+#   - left_arm: IDs 1-6 (SO101 6-DOF arm)
+#   - base: IDs 7-9 (mecanum wheels)
+#   - lift: ID 10 (30cm vertical lift)
+#
+# ACM1 (/dev/ttyACM1) - Right Side:
+#   - right_arm: IDs 1-6 (SO101 6-DOF arm)
+#   - gantry: IDs 7-8 (Feetech pan/tilt for OAK-D Pro)
+
+# =============================================================================
+# CLI Commands (via Solo-CLI)
+# =============================================================================
+cli:
+  tool: solo
+  description: "Uses solo-cli for Feetech servo communication"
+
+  commands:
+    ping: "solo robo --port {{port}} --ids {{id}} --ping"
+    wiggle: "solo robo --port {{port}} --ids {{id}} --wiggle"
+    move: "solo robo --port {{port}} --ids {{id}} --position {{position}}"
+    read: "solo robo --port {{port}} --ids {{id}} --read"
+    scan_all: "solo robo --port {{port}} --scan"
+    calibrate: "solo robo --port {{port}} --calibrate {{id}}"
+    teleop: "solo robo --port {{port}} --teleop"
+
+# =============================================================================
+# Triggers (for verbal commands)
+# =============================================================================
+triggers:
+  - pattern: "scan.*motors|find.*servos"
+    action: scan_all_banks
+
+  - pattern: "calibrate.*all|setup.*servos"
+    action: startup_calibration

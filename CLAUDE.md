@@ -2,9 +2,29 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## DIRECTIVE: Do Exactly What You Are Told
+
+- Only do what is explicitly requested. Nothing more.
+- No presumptions. No assumptions. No additional work.
+- If unsure which file to edit, ASK. Do not guess.
+- Complete the task directly. Do not research unless asked.
+- "readme" means README.md. "claude md" means CLAUDE.md. Listen.
+
 ## Project Overview
 
-**Johnny Five** - A physical AI robot for the 2026 hackathon with multimodal identity recognition. The robot identifies people through three modalities: face (WhoAmI/DeepFace), voice (WeSpeaker ECAPA-TDNN), and direction of arrival (4-mic DOA fused with YOLO).
+**Johnny Five** - A **social robot** model whose primary purpose is to **connect with and remember people** for social interaction.
+
+> **Naming Convention**: "Johnny Five" is the robot MODEL (like "iPhone").
+> Each unit chooses its own name - this one chose "Chloe".
+
+This is a physical AI robot for the 2026 hackathon with multimodal identity recognition. The robot identifies people through three modalities: face (WhoAmI/DeepFace), voice (WeSpeaker ECAPA-TDNN), and direction of arrival (4-mic DOA fused with YOLO).
+
+### Core Mission
+Chloe is designed for **human connection**, not task automation. She:
+- Remembers everyone she meets (face + voice embeddings)
+- Tracks who is speaking and looks at them
+- Engages in natural conversation
+- Uses gestures and body language to express herself
 
 Key demo: Put a cap over OAK-D camera - Johnny still knows who's talking by voice alone.
 

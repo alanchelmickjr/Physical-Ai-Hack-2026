@@ -138,37 +138,25 @@ class LastSeenTracker:
 
 
 class TrackedPerson:
-    """Positive IDs stick - Unidentified doesn't count against"""
+    """Raw identification - no cooldown (YOLO on VPU is stable)"""
     def __init__(self):
-        self.name_votes = defaultdict(int)
         self.current_name = "Unidentified"
-        self.locked_name = None
         self.confidence = 0.0
-        self.announced = False  # Have we spoken this person's name?
+        self.announced = False
 
     def vote(self, name, conf):
-        # Only count REAL names, not Unidentified
+        # Direct assignment - no voting needed with VPU YOLO
         if name != "Unidentified":
-            self.name_votes[name] += 1
-            best_name = max(self.name_votes.keys(), key=lambda n: self.name_votes[n])
-            best_count = self.name_votes[best_name]
-            if best_count >= 2:
-                self.locked_name = best_name
-                self.confidence = conf
-
-        if self.locked_name:
-            self.current_name = self.locked_name
-        elif self.name_votes:
-            self.current_name = max(self.name_votes.keys(), key=lambda n: self.name_votes[n])
-        else:
             self.current_name = name
+            self.confidence = conf
 
     def get_name(self):
-        return self.current_name, self.confidence, self.locked_name is not None
+        is_locked = self.current_name != "Unidentified"
+        return self.current_name, self.confidence, is_locked
 
     def should_announce(self):
-        """Return True if we should announce this person (first time locked)"""
-        if self.locked_name and not self.announced:
+        """Return True if we should announce this person (first time identified)"""
+        if self.current_name != "Unidentified" and not self.announced:
             self.announced = True
             return True
         return False

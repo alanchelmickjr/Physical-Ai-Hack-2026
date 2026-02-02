@@ -205,3 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+# Ignore cloned repos in forks/ (they're external)
+forks/chloe-lerobot/
+forks/chloe-solo/

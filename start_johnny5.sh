@@ -14,17 +14,36 @@ echo "Setting up WebRTC echo cancellation..."
 # Unload any existing echo-cancel module
 pactl unload-module module-echo-cancel 2>/dev/null || true
 
-# Load WebRTC-based echo cancellation
+# Load WebRTC-based echo cancellation with tuned settings
 # source_master = ReSpeaker mic, sink_master = HDMI output
+# Extended filter and voice detection help with longer echo tails
 pactl load-module module-echo-cancel \
     use_master_format=1 \
     aec_method=webrtc \
-    aec_args="analog_gain_control=0 digital_gain_control=1 noise_suppression=1" \
+    aec_args="analog_gain_control=0 digital_gain_control=1 noise_suppression=1 extended_filter=1 voice_detection=1 high_pass_filter=1" \
     source_name=ec_source \
     sink_name=ec_sink 2>/dev/null || true
 
 # Set echo-cancelled source as default (so apps use it)
 pactl set-default-source ec_source 2>/dev/null || true
+
+# =============================================================================
+# OPTION B: ReSpeaker 3.5mm Output (Enable when external speaker arrives)
+# =============================================================================
+# When using ReSpeaker's 3.5mm output, the XMOS DSP gets a proper AEC reference
+# signal internally, providing much better echo cancellation than software AEC.
+#
+# To enable:
+# 1. Connect a powered speaker to ReSpeaker's 3.5mm jack
+# 2. Uncomment the lines below
+# 3. Comment out the HDMI sink setting above
+#
+# RESPEAKER_SINK=$(pactl list sinks short | grep -i respeaker | cut -f2)
+# if [ -n "$RESPEAKER_SINK" ]; then
+#     echo "Using ReSpeaker 3.5mm output for hardware AEC"
+#     pactl set-default-sink "$RESPEAKER_SINK"
+# fi
+# =============================================================================
 
 # Verify
 echo "Audio setup:"
