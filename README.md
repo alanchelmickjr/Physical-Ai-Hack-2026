@@ -202,6 +202,10 @@ Physical-Ai-Hack-2026/
 │   ├── unitree.py               # Unitree G1 built-in 4-mic
 │   └── factory.py               # Microphone factory
 │
+├── actions/                     # Unified action primitives
+│   ├── base.py                  # Abstract action definitions
+│   └── unified.py               # UnifiedActions interface
+│
 ├── config/                      # Configuration
 │   ├── hardware.py              # Johnny Five motor config
 │   ├── motors.py                # Motor interface
@@ -302,6 +306,32 @@ robot.start_sensors()
 # Identity persists across bodies via Gun.js
 ```
 
+### Unified Actions API
+
+```python
+from robot_factory import create_robot
+from actions import UnifiedActions, Target, Hand, GestureType
+
+robot = create_robot()
+await robot.adapter.connect()
+
+actions = UnifiedActions(robot)
+
+# These work on any robot body
+await actions.wave()                              # Wave hello
+await actions.wave(hand=Hand.LEFT)                # Wave with left hand
+await actions.look_at(Target.from_angle(45))      # Look right 45°
+await actions.nod()                               # Nod yes
+await actions.gesture(GestureType.THUMBS_UP)      # Thumbs up
+
+# Locomotion (adapts to wheels vs bipedal)
+await actions.walk_to(Target.from_position(1.0, 0.0))
+await actions.turn(angle=90)
+
+# Compound actions
+await actions.greet(target=person)                # Look + wave
+```
+
 ### Adding a New Robot
 
 1. Create adapter in `adapters/your_robot.py` implementing `RobotAdapter`
@@ -353,6 +383,7 @@ See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for details
 | `adapters/base.py` | Abstract RobotAdapter interface (implement for new robots) |
 | `adapters/booster_k1.py` | Booster K1 adapter (ROS2 bipedal) |
 | `adapters/unitree_g1.py` | Unitree G1 adapter (unitree_sdk2/ROS2) |
+| `actions/unified.py` | Unified action primitives (wave, point, walk, etc.) |
 | `cameras/base.py` | Abstract SpatialCamera interface (OAK-D, ZED, etc.) |
 | `microphones/base.py` | Abstract MicrophoneArray interface (DOA, VAD) |
 | `config/robots.py` | Multi-robot configuration registry |
