@@ -68,6 +68,13 @@ def _ensure_registered():
     except ImportError as e:
         print(f"[CameraFactory] ZED not available: {e}")
 
+    try:
+        from .realsense import RealSenseCamera
+        register_camera(CameraType.REALSENSE_D435, RealSenseCamera)
+        register_camera(CameraType.REALSENSE_D455, RealSenseCamera)
+    except ImportError as e:
+        print(f"[CameraFactory] RealSense not available: {e}")
+
 
 def list_available_cameras() -> list:
     """List all registered camera types.

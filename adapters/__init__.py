@@ -6,12 +6,14 @@
 # Supported robots:
 # - Johnny Five (OAK-D, ReSpeaker 4-Mic, Feetech servos)
 # - Booster K1 (ZED X, 6-Mic array, ROS2 bipedal)
+# - Unitree G1 (RealSense D435, 4-Mic, unitree_sdk2/ROS2)
 #
 # To add a new robot, create an adapter in this directory.
 
 from .base import RobotAdapter, Subsystem, ActionResult, ActionPrimitive, MockAdapter
 from .johnny5 import Johnny5Adapter
 from .booster_k1 import BoosterK1Adapter
+from .unitree_g1 import UnitreeG1Adapter
 
 __all__ = [
     "RobotAdapter",
@@ -21,4 +23,5 @@ __all__ = [
     "MockAdapter",
     "Johnny5Adapter",
     "BoosterK1Adapter",
+    "UnitreeG1Adapter",
 ]
