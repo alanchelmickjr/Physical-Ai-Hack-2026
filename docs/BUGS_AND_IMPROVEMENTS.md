@@ -365,3 +365,268 @@ No lock around singleton creation.
 4. Fix duplicate action names in engine.py
 5. Call remember_person from face recognition
 6. Call process_speech_text and set_speaking from johnny5.py
+
+---
+
+## Part 2: Timing, Race Conditions & Safety Order
+
+Additional issues discovered during timing/concurrency analysis.
+
+---
+
+### 22. `RealTimeCommandQueue` never used
+**File:** `tools/realtime.py`
+**Type:** Dead Code / Critical for Smoothness
+
+A proper real-time command queue exists with:
+- Priority levels (EMERGENCY bypasses everything)
+- Timestamp tracking and deadline expiration
+- 30Hz control loop with `time.perf_counter()`
+- Action interpolation for smooth motion
+
+But **nothing uses it**:
+```python
+# Exported but never imported anywhere else:
+from tools import RealTimeCommandQueue, RealTimeExecutor, get_command_queue
+```
+
+**Impact:** No smooth motion interpolation. No command prioritization. No real-time timing.
+
+---
+
+### 23. Fire alert doesn't use EMERGENCY priority
+**File:** `motion_coordinator.py:460-490`, `tools/realtime.py`
+**Type:** Safety Order Issue
+
+Fire detection triggers `alert_fire()` which does arm movements through regular async calls:
+```python
+async def alert_fire(self, direction: float = None):
+    # Regular async movement - no priority!
+    await self._move_arm("left", point_pose, speed=1.0)
+```
+
+Should use `CommandPriority.EMERGENCY` from realtime.py to:
+1. Interrupt current movement immediately
+2. Clear interruptible commands from queue
+3. Execute fire alert with highest priority
+
+**Impact:** Fire alert could be delayed by ongoing motion or queued commands.
+
+---
+
+### 24. Multiple independent timing clocks
+**File:** Various
+**Type:** Timing Inconsistency
+
+Different modules use different timing sources:
+
+| Module | Timing Source | Issue |
+|--------|--------------|-------|
+| `doa_reader.py` | `time.perf_counter()` | Correct for rate control |
+| `head_tracker.py` | `time.time()` + hardcoded `time.sleep(0.03)` | Inconsistent |
+| `motion_coordinator.py` | `time.time()` | Not monotonic |
+| `johnny5.py` | `time.time()` | For latency logging only |
+| `tools/realtime.py` | `time.perf_counter()` | Correct but unused |
+
+`time.time()` can jump backwards (NTP adjustments), `time.perf_counter()` is monotonic.
+
+**Impact:** Rate control may drift. Timestamps may be inconsistent across modules.
+
+---
+
+### 25. Head tracker and motion coordinator lock conflict
+**File:** `head_tracker.py:101`, `motion_coordinator.py:158`
+**Type:** Potential Deadlock
+
+Both have their own locks:
+```python
+# head_tracker.py
+self._lock = threading.Lock()
+
+# motion_coordinator.py
+self._lock = threading.Lock()
+```
+
+Head tracker calls motion coordinator's gantry controller from its thread while holding its lock. If motion coordinator tries to read head tracker state while holding its lock, deadlock is possible.
+
+**Impact:** Potential deadlock under specific timing conditions.
+
+---
+
+### 26. Async functions calling blocking subprocess
+**File:** `motion_coordinator.py:697`, `adapters/johnny5.py`
+**Type:** Blocking in Async Context
+
+```python
+async def _move_gantry(self, pan: float, tilt: float, speed: float):
+    # This BLOCKS the entire async event loop!
+    result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+```
+
+Should use `asyncio.create_subprocess_exec()` or run in thread pool.
+
+**Impact:** Head tracking blocks all other async operations during motor commands.
+
+---
+
+### 27. No coordination between safety systems
+**File:** `visual_safety.py`, `terrain_navigation.py`, `motion_coordinator.py`
+**Type:** Safety Priority
+
+Three safety systems that could conflict:
+1. **Visual Safety** - fire/smoke detection
+2. **Terrain Navigation** - cord/gap detection
+3. **Motion Coordinator** - general movement
+
+No coordination layer. If fire is detected while crossing a gap:
+- Which takes priority?
+- Who controls the motors?
+- Could commands conflict?
+
+**Impact:** Undefined behavior when multiple safety conditions trigger simultaneously.
+
+---
+
+### 28. Cooldowns use wall clock time
+**File:** `visual_safety.py:303-307`, `motion_coordinator.py:353`
+**Type:** Timing Issue
+
+```python
+# visual_safety.py
+if now - self._last_alert_time < self.config.alert_cooldown_seconds:
+    return  # Skip alert!
+
+# motion_coordinator.py
+if now - person.last_pointed_at < self._point_cooldown_seconds:
+    return  # Don't point
+```
+
+Uses `time.time()` which can jump. System clock adjustment could:
+- Make cooldown infinite (clock jumped forward)
+- Skip cooldown entirely (clock jumped backward)
+
+**Impact:** Safety cooldowns unreliable if system time changes.
+
+---
+
+### 29. Thread-to-async callback bridge missing
+**File:** `head_tracker.py:181`, `motion_coordinator.py:166`
+**Type:** Threading/Async Issue
+
+```python
+# Head tracker runs in thread, calls sync callback:
+self.doa.on_direction_change(self._on_doa_change)
+
+# Motion coordinator provides sync wrapper for async:
+self.head_tracker.set_gantry_controller(self._move_gantry_sync)
+```
+
+But `_move_gantry_sync` needs to call async `_move_gantry`:
+```python
+def _move_gantry_sync(self, pan, tilt, speed):
+    # How to call async from sync thread context?
+    # asyncio.run() creates new loop
+    # loop.run_until_complete() may not work from thread
+```
+
+No proper `asyncio.run_coroutine_threadsafe()` bridge.
+
+**Impact:** Motor commands from head tracker may fail or create race conditions.
+
+---
+
+### 30. LED state machine has no mutex
+**File:** `led_controller.py:50,89-175`
+**Type:** Race Condition
+
+```python
+self._lock = threading.Lock()
+
+def listening(self):
+    # Acquires lock, sets pattern
+
+def thinking(self):
+    # Acquires lock, sets different pattern
+```
+
+But if two threads call different LED states simultaneously, the visual feedback could glitch:
+1. Thread A: `listening()` - acquires lock, starts pattern
+2. Thread A: releases lock
+3. Thread B: `thinking()` - acquires lock, changes pattern
+4. Visual: flickers between states
+
+**Impact:** LED feedback may be inconsistent during rapid state changes.
+
+---
+
+### 31. Action interpolation not integrated
+**File:** `tools/realtime.py:303-354`
+**Type:** Missing Integration
+
+`ActionInterpolator` exists for smooth motion:
+```python
+class ActionInterpolator:
+    """Smooth interpolation between robot positions."""
+    def step(self) -> Dict[str, List[float]]:
+        # Exponential smoothing toward targets
+```
+
+But nothing uses it. Motor commands go directly to Solo-CLI without interpolation.
+
+**Impact:** Jerky motion. No smooth transitions between poses.
+
+---
+
+### 32. No heartbeat/watchdog for motor safety
+**File:** `adapters/johnny5.py`, `motion_coordinator.py`
+**Type:** Safety
+
+No watchdog that:
+- Checks if motor commands are still being sent
+- Disables torque if communication lost
+- Detects if control loop stopped
+
+If the control program crashes, motors stay in last position with torque enabled.
+
+**Impact:** Robot could be stuck in position after crash, requiring manual intervention.
+
+---
+
+### 33. Gesture interruption not handled
+**File:** `motion_coordinator.py:255-290`
+**Type:** State Machine Issue
+
+During gestures like `wave()` or `express_excitement()`:
+```python
+async def wave(self, arm: str = "right", style: str = "friendly"):
+    await self._gesture(Gesture.WAVE, arm=arm)
+    # What if fire detected here?
+    await asyncio.sleep(0.2)
+    # Gesture continues even during emergency!
+```
+
+No mechanism to interrupt mid-gesture for higher priority actions.
+
+**Impact:** Emergency responses delayed until gesture completes.
+
+---
+
+## Updated Summary
+
+| Category | Count |
+|----------|-------|
+| Critical (Disconnected) | 6 |
+| High (Logic Errors) | 4 |
+| Medium (Missing Features) | 5 |
+| Low (Code Quality) | 6 |
+| **Timing/Safety (New)** | **12** |
+| **Total** | **33** |
+
+### Timing/Safety Priority Order
+1. Integrate `RealTimeCommandQueue` for all motor commands
+2. Use `CommandPriority.EMERGENCY` for fire alerts
+3. Add proper async/thread bridge using `run_coroutine_threadsafe()`
+4. Standardize on `time.perf_counter()` for all timing
+5. Add safety coordination layer for multi-system conflicts
+6. Integrate `ActionInterpolator` for smooth motion
+7. Add motor watchdog/heartbeat
