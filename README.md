@@ -4,15 +4,14 @@
 
 ![Hackathon](https://img.shields.io/badge/Physical%20AI-Hack%202026-blue)
 ![Status](https://img.shields.io/badge/Status-Functional-green)
-![Platform](https://img.shields.io/badge/Jetson-Orin-76B900)
 ![Portable](https://img.shields.io/badge/Multi--Robot-Portable-orange)
-
 [![Hume EVI](https://img.shields.io/badge/Voice-Hume_EVI-FF6B6B)](https://hume.ai)
-[![OAK-D](https://img.shields.io/badge/Camera-OAK--D_Pro-00A0DC)](https://docs.luxonis.com/)
-[![ZED](https://img.shields.io/badge/Camera-ZED_X-00A0DC)](https://www.stereolabs.com/)
-[![RealSense](https://img.shields.io/badge/Camera-RealSense_D435-0071C5)](https://www.intelrealsense.com/)
-[![ReSpeaker](https://img.shields.io/badge/Mic-ReSpeaker_4--Mic-00C853)](https://wiki.seeedstudio.com/ReSpeaker_Mic_Array_v2.0/)
-[![Solo-CLI](https://img.shields.io/badge/Motors-Solo--CLI-FF9800)](https://github.com/TheRobotStudio/SO-ARM100)
+
+**Johnny Five** · ![Orin 8GB](https://img.shields.io/badge/Orin-8GB-76B900) [![OAK-D](https://img.shields.io/badge/OAK--D_Pro-00A0DC)](https://docs.luxonis.com/) [![ReSpeaker](https://img.shields.io/badge/ReSpeaker_4--Mic-00C853)](https://wiki.seeedstudio.com/ReSpeaker_Mic_Array_v2.0/) [![Solo-CLI](https://img.shields.io/badge/Solo--CLI-FF9800)](https://github.com/TheRobotStudio/SO-ARM100)
+
+**Booster K1** · ![Orin NX](https://img.shields.io/badge/Orin-NX-76B900) [![ZED X](https://img.shields.io/badge/ZED_X-00A0DC)](https://www.stereolabs.com/) ![6-Mic](https://img.shields.io/badge/6--Mic_Array-00C853) ![ROS2](https://img.shields.io/badge/ROS2-22314E)
+
+**Unitree G1** · ![Orin NX](https://img.shields.io/badge/Orin-NX-76B900) [![RealSense](https://img.shields.io/badge/RealSense_D435-0071C5)](https://www.intelrealsense.com/) ![4-Mic](https://img.shields.io/badge/4--Mic_Array-00C853) ![unitree_sdk2](https://img.shields.io/badge/unitree__sdk2-333)
 
 ### Related Repositories
 
