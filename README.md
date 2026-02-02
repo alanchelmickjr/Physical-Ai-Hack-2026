@@ -4,8 +4,22 @@
 
 ![Hackathon](https://img.shields.io/badge/Physical%20AI-Hack%202026-blue)
 ![Status](https://img.shields.io/badge/Status-Functional-green)
-![Platform](https://img.shields.io/badge/Jetson-Orin%208GB-orange)
+![Platform](https://img.shields.io/badge/Jetson-Orin%208GB-76B900)
 ![Servos](https://img.shields.io/badge/Servos-19-purple)
+
+[![Hume EVI](https://img.shields.io/badge/Voice-Hume_EVI-FF6B6B)](https://hume.ai)
+[![OAK-D](https://img.shields.io/badge/Camera-OAK--D_Pro-00A0DC)](https://docs.luxonis.com/)
+[![ReSpeaker](https://img.shields.io/badge/Mic-ReSpeaker_4--Mic-00C853)](https://wiki.seeedstudio.com/ReSpeaker_Mic_Array_v2.0/)
+[![Solo-CLI](https://img.shields.io/badge/Motors-Solo--CLI-FF9800)](https://github.com/TheRobotStudio/SO-ARM100)
+
+### Related Repositories
+
+| Repo | Purpose |
+|------|---------|
+| [memoRable](https://github.com/alanchelmickjr/memoRable) | Context-aware memory for AI agents & robots |
+| [whoami](https://github.com/alanchelmickjr/whoami) | Secure facial recognition for robots |
+| [SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100) | Solo-CLI for Feetech servo control |
+| [lerobot](https://github.com/huggingface/lerobot) | HuggingFace robotics ML toolkit |
 
 ---
 
