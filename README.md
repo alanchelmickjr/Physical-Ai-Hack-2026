@@ -118,6 +118,46 @@ All servos: Dynamixel XL330-M288-T, Protocol 2.0
 - **Wheel Drag Detection** — Emergency stop if cord caught
 - **Emergency Stop** — Direct torque disable on all motors
 
+### Sensor Fusion (DOA + Depth)
+
+Active speaker identification using multimodal fusion:
+
+```
+ReSpeaker 4-Mic Array          OAK-D Pro Stereo
+        │                            │
+   DOA (0-360°)              Depth + RGB → YOLO
+        │                            │
+        └──────────┬─────────────────┘
+                   │
+         DOA-Spatial Fusion
+                   │
+    ┌──────────────┴──────────────┐
+    │  • Angular match (±15° σ)   │
+    │  • Depth confidence         │
+    │  • Active speaker ID        │
+    │  • 3D position (x,y,z mm)   │
+    └─────────────────────────────┘
+```
+
+| Component | Utilization | Notes |
+|-----------|-------------|-------|
+| ReSpeaker | ~70% | DOA, VAD, LEDs (AEC not yet connected) |
+| OAK-D Pro | ~70% | RGB + stereo depth + visual safety |
+| Fusion | ~80% | DOA + depth person matching |
+
+**Usage:**
+```python
+from doa_spatial_fusion import get_fusion
+
+fusion = get_fusion()
+fusion.start()
+fusion.enable_visual_safety(enabled=True)
+
+speaker = fusion.get_active_speaker()
+if speaker and speaker.is_valid:
+    print(f"Speaker at {speaker.detection.distance:.0f}mm")
+```
+
 ---
 
 ## Project Structure
@@ -131,6 +171,8 @@ Physical-Ai-Hack-2026/
 ├── motion_coordinator.py        # Spine - autonomic movement control
 ├── head_tracker.py              # DOA → gantry head tracking
 ├── doa_reader.py                # ReSpeaker direction of arrival
+├── doa_spatial_fusion.py        # DOA + OAK-D depth fusion for active speaker ID
+├── spatial_tracker.py           # OAK-D stereo depth person tracking (3D positions)
 ├── terrain_navigation.py        # Gap/cord/rail detection & crossing
 ├── visual_safety.py             # Fire/smoke detection
 ├── led_controller.py            # ReSpeaker LED feedback
@@ -234,6 +276,8 @@ See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for details
 | `motion_coordinator.py` | The "spine" - coordinates all movement, gestures, safety |
 | `adapters/johnny5.py` | Hardware adapter - translates intents to Solo-CLI commands |
 | `tools/registry.py` | 50+ tools Hume can call (wave, point, move, etc.) |
+| `doa_spatial_fusion.py` | DOA + OAK-D depth fusion for active speaker identification |
+| `spatial_tracker.py` | OAK-D stereo depth person tracking with 3D positions |
 | `terrain_navigation.py` | Autonomous obstacle handling (gaps, rails, cords) |
 | `visual_safety.py` | Fire/smoke detection with auto-alert |
 
@@ -244,6 +288,7 @@ See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for details
 - [AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) — Hume ↔ Spine ↔ Adapter with mermaid diagrams
 - [JOHNNY5_HARDWARE_SPEC.md](docs/JOHNNY5_HARDWARE_SPEC.md) — 19-servo layout, calibration, motor IDs
 - [HUME_EVI_ROBOT_CONTROL_PLAN.md](docs/HUME_EVI_ROBOT_CONTROL_PLAN.md) — Tool execution architecture
+- [SENSOR_UTILIZATION.md](docs/SENSOR_UTILIZATION.md) — ReSpeaker & OAK-D capabilities and usage
 - [JOHNNY5_FLOW_ANALYSIS.md](docs/JOHNNY5_FLOW_ANALYSIS.md) — Voice pipeline debugging
 
 ---
