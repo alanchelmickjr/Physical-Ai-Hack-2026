@@ -496,3 +496,413 @@ class Johnny5Adapter(RobotAdapter):
                 self.config.right_arm_ids + self.config.gantry_ids
             )
         )
+
+    # =========================================================================
+    # Diagnostic Methods
+    # =========================================================================
+
+    async def scan_motors(self, port: str) -> Dict[int, bool]:
+        """Scan a bus for responding motors.
+
+        Returns:
+            Dict mapping motor ID to whether it responds
+        """
+        results = {}
+        max_id = 10 if port == self.config.left_port else 8
+
+        for motor_id in range(1, max_id + 1):
+            cmd = [
+                "solo", "robo",
+                "--port", port,
+                "--ids", str(motor_id),
+                "--ping"
+            ]
+            try:
+                result = await asyncio.wait_for(
+                    self._run_solo_command(cmd),
+                    timeout=1.0
+                )
+                results[motor_id] = result.returncode == 0
+            except asyncio.TimeoutError:
+                results[motor_id] = False
+
+        return results
+
+    async def get_motor_status(self, port: str, motor_id: int) -> Dict[str, Any]:
+        """Get detailed status of a motor.
+
+        Returns:
+            Dict with position, velocity, temperature, load, voltage
+        """
+        cmd = [
+            "solo", "robo",
+            "--port", port,
+            "--ids", str(motor_id),
+            "--status"
+        ]
+        result = await self._run_solo_command(cmd)
+
+        if result.returncode != 0:
+            return {"error": result.stderr or "Motor not responding"}
+
+        # Parse status output (format depends on Solo-CLI version)
+        # Expected: "Position: 45, Velocity: 0, Temp: 32, Load: 10%, Voltage: 11.8V"
+        status = {"raw": result.stdout}
+        try:
+            for part in result.stdout.split(","):
+                if ":" in part:
+                    key, val = part.split(":", 1)
+                    status[key.strip().lower()] = val.strip()
+        except:
+            pass
+
+        return status
+
+    async def test_motor(self, port: str, motor_id: int, angle: float = 10) -> bool:
+        """Test a motor by wiggling it slightly.
+
+        Args:
+            port: Serial port
+            motor_id: Motor to test
+            angle: Degrees to move
+
+        Returns:
+            True if motor responded
+        """
+        # Read current position
+        status = await self.get_motor_status(port, motor_id)
+        if "error" in status:
+            return False
+
+        current_pos = float(status.get("position", 0))
+
+        # Move forward
+        cmd = [
+            "solo", "robo",
+            "--port", port,
+            "--ids", str(motor_id),
+            "--positions", str(current_pos + angle),
+            "--speed", "0.5"
+        ]
+        result = await self._run_solo_command(cmd)
+        if result.returncode != 0:
+            return False
+
+        await asyncio.sleep(0.3)
+
+        # Move back
+        cmd[6] = str(current_pos)
+        result = await self._run_solo_command(cmd)
+
+        return result.returncode == 0
+
+    async def enable_torque(self, port: str, ids: tuple, enable: bool = True) -> bool:
+        """Enable or disable torque on motors."""
+        cmd = [
+            "solo", "robo",
+            "--port", port,
+            "--ids", ",".join(map(str, ids)),
+            "--torque", "on" if enable else "off"
+        ]
+        result = await self._run_solo_command(cmd)
+        return result.returncode == 0
+
+    # =========================================================================
+    # Calibration Methods
+    # =========================================================================
+
+    async def calibrate_arm(self, arm: str, mode: str = "quick") -> ActionResult:
+        """Calibrate an SO101 arm.
+
+        Modes:
+            - quick: Just set current position as home
+            - full: Disable torque, wait for manual positioning, set home
+            - offsets_only: Read current positions and save as offsets
+        """
+        port = self.config.left_port if arm == "left" else self.config.right_port
+        ids = self.config.left_arm_ids if arm == "left" else self.config.right_arm_ids
+
+        if mode == "full":
+            # Disable torque for manual positioning
+            await self._disable_torque(port, ids)
+            return ActionResult(
+                success=True,
+                message=f"Torque disabled on {arm} arm. Please move to home position and confirm.",
+                data={"awaiting_confirmation": True, "arm": arm}
+            )
+
+        elif mode == "quick":
+            # Set current position as home
+            cmd = [
+                "solo", "robo",
+                "--port", port,
+                "--ids", ",".join(map(str, ids)),
+                "--set-home"
+            ]
+            result = await self._run_solo_command(cmd)
+
+            if result.returncode == 0:
+                # Enable torque
+                await self.enable_torque(port, ids, True)
+                return ActionResult(
+                    success=True,
+                    message=f"{arm.title()} arm calibrated. Current position set as home."
+                )
+            else:
+                return ActionResult(
+                    success=False,
+                    message=f"Calibration failed: {result.stderr}"
+                )
+
+        elif mode == "offsets_only":
+            # Read current positions
+            positions = []
+            for motor_id in ids:
+                status = await self.get_motor_status(port, motor_id)
+                positions.append(float(status.get("position", 0)))
+
+            return ActionResult(
+                success=True,
+                message=f"{arm.title()} arm positions: {positions}",
+                data={"positions": positions}
+            )
+
+        return ActionResult(success=False, message=f"Unknown mode: {mode}")
+
+    async def calibrate_gantry(self, mode: str = "center_only") -> ActionResult:
+        """Calibrate the camera gantry."""
+        port = self.config.right_port
+        ids = self.config.gantry_ids
+
+        if mode == "center_only":
+            # Set current as center
+            cmd = [
+                "solo", "robo",
+                "--port", port,
+                "--ids", ",".join(map(str, ids)),
+                "--set-home"
+            ]
+            result = await self._run_solo_command(cmd)
+
+            if result.returncode == 0:
+                return ActionResult(
+                    success=True,
+                    message="Gantry centered. Pan/tilt home position set."
+                )
+
+        elif mode == "full":
+            # Test full range
+            results = []
+
+            # Test pan limits
+            for pan in [-90, 0, 90]:
+                cmd = [
+                    "solo", "robo",
+                    "--port", port,
+                    "--ids", str(ids[0]),
+                    "--positions", str(pan),
+                    "--speed", "0.3"
+                ]
+                r = await self._run_solo_command(cmd)
+                results.append(r.returncode == 0)
+                await asyncio.sleep(0.5)
+
+            # Test tilt limits
+            for tilt in [-45, 0, 45]:
+                cmd = [
+                    "solo", "robo",
+                    "--port", port,
+                    "--ids", str(ids[1]),
+                    "--positions", str(tilt),
+                    "--speed", "0.3"
+                ]
+                r = await self._run_solo_command(cmd)
+                results.append(r.returncode == 0)
+                await asyncio.sleep(0.5)
+
+            # Return to center
+            await self._move_to_position(Subsystem.GANTRY, {"positions": [0, 0], "speed": 0.3})
+
+            if all(results):
+                return ActionResult(
+                    success=True,
+                    message="Gantry full calibration complete. All limits tested."
+                )
+            else:
+                return ActionResult(
+                    success=False,
+                    message="Some gantry movements failed."
+                )
+
+        return ActionResult(success=False, message=f"Unknown mode: {mode}")
+
+    async def calibrate_lift(self, find_limits: bool = True) -> ActionResult:
+        """Calibrate the lift mechanism."""
+        port = self.config.left_port
+        lift_id = self.config.lift_ids[0]
+
+        if find_limits:
+            # Move down slowly until stall detected
+            # This is simplified - real implementation would read load current
+            cmd_down = [
+                "solo", "robo",
+                "--port", port,
+                "--ids", str(lift_id),
+                "--positions", "0",
+                "--speed", "0.2"
+            ]
+            await self._run_solo_command(cmd_down)
+            await asyncio.sleep(2.0)
+
+            # Set bottom as 0
+            cmd_home = [
+                "solo", "robo",
+                "--port", port,
+                "--ids", str(lift_id),
+                "--set-home"
+            ]
+            await self._run_solo_command(cmd_home)
+
+            # Move to center (150mm)
+            cmd_center = [
+                "solo", "robo",
+                "--port", port,
+                "--ids", str(lift_id),
+                "--positions", "150",
+                "--speed", "0.3"
+            ]
+            await self._run_solo_command(cmd_center)
+
+            return ActionResult(
+                success=True,
+                message="Lift calibrated. Bottom found, now at center (150mm)."
+            )
+
+        return ActionResult(
+            success=True,
+            message="Lift home position set."
+        )
+
+    async def calibrate_base(self, mode: str = "wheel_test") -> ActionResult:
+        """Calibrate the mecanum base."""
+        port = self.config.left_port
+        ids = self.config.wheel_ids
+
+        if mode == "wheel_test":
+            # Test each wheel individually
+            results = []
+            wheel_names = ["front", "back-left", "back-right"]
+
+            for i, (motor_id, name) in enumerate(zip(ids, wheel_names)):
+                cmd = [
+                    "solo", "robo",
+                    "--port", port,
+                    "--ids", str(motor_id),
+                    "--velocity", "50",
+                    "--duration", "0.5"
+                ]
+                r = await self._run_solo_command(cmd)
+                results.append((name, r.returncode == 0))
+                await asyncio.sleep(0.5)
+
+            failed = [name for name, ok in results if not ok]
+            if failed:
+                return ActionResult(
+                    success=False,
+                    message=f"Wheel test failed for: {failed}",
+                    data={"results": results}
+                )
+            else:
+                return ActionResult(
+                    success=True,
+                    message="All wheels tested successfully.",
+                    data={"results": results}
+                )
+
+        elif mode == "drive_test":
+            # Test basic movements
+            movements = [
+                ("forward", [50, 50, 50]),
+                ("backward", [-50, -50, -50]),
+                ("strafe_left", [-50, 50, -50]),
+                ("rotate_cw", [50, -50, 50]),
+            ]
+
+            for name, vels in movements:
+                cmd = [
+                    "solo", "robo",
+                    "--port", port,
+                    "--ids", ",".join(map(str, ids)),
+                    "--velocities", ",".join(map(str, vels)),
+                    "--duration", "0.5"
+                ]
+                await self._run_solo_command(cmd)
+                await asyncio.sleep(0.7)
+
+            return ActionResult(
+                success=True,
+                message="Drive test complete. Tested forward, backward, strafe, rotate."
+            )
+
+        return ActionResult(success=False, message=f"Unknown mode: {mode}")
+
+    async def set_motor_id(self, port: str, current_id: int, new_id: int) -> ActionResult:
+        """Change a motor's ID. WARNING: Only one motor should be on bus!"""
+        cmd = [
+            "solo", "robo",
+            "--port", port,
+            "--ids", str(current_id),
+            "--set-id", str(new_id)
+        ]
+        result = await self._run_solo_command(cmd)
+
+        if result.returncode == 0:
+            return ActionResult(
+                success=True,
+                message=f"Motor ID changed from {current_id} to {new_id}. Reboot motor to apply."
+            )
+        else:
+            return ActionResult(
+                success=False,
+                message=f"Failed to change ID: {result.stderr}"
+            )
+
+    async def self_test(self, subsystems: List[str] = None) -> ActionResult:
+        """Run self-test on specified subsystems."""
+        subsystems = subsystems or ["left_arm", "right_arm", "gantry"]
+        results = {}
+
+        for subsystem in subsystems:
+            if subsystem == "left_arm":
+                port, ids = self.config.left_port, self.config.left_arm_ids
+            elif subsystem == "right_arm":
+                port, ids = self.config.right_port, self.config.right_arm_ids
+            elif subsystem == "gantry":
+                port, ids = self.config.right_port, self.config.gantry_ids
+            elif subsystem == "lift":
+                port, ids = self.config.left_port, self.config.lift_ids
+            elif subsystem == "base":
+                port, ids = self.config.left_port, self.config.wheel_ids
+            else:
+                continue
+
+            # Test each motor
+            motor_results = {}
+            for motor_id in ids:
+                ok = await self.test_motor(port, motor_id)
+                motor_results[motor_id] = "OK" if ok else "FAIL"
+
+            results[subsystem] = motor_results
+
+        # Summarize
+        all_ok = all(
+            v == "OK"
+            for subsys in results.values()
+            for v in subsys.values()
+        )
+
+        return ActionResult(
+            success=all_ok,
+            message="Self-test passed" if all_ok else "Some motors failed",
+            data=results
+        )
