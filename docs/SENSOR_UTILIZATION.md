@@ -185,10 +185,40 @@ ReSpeaker                          OAK-D Pro
 
 ## Summary
 
-| Sensor | Utilization | Top Priority |
-|--------|-------------|--------------|
-| **ReSpeaker** | ~70% | Connect AEC reference |
-| **OAK-D Pro** | ~40% | Enable spatial detection + feed visual safety |
-| **Fusion** | ~30% | Implement DOA+Depth person matching |
+| Sensor | Utilization | Status |
+|--------|-------------|--------|
+| **ReSpeaker** | ~70% | Connect AEC reference (remaining) |
+| **OAK-D Pro** | ~70% | ✅ Spatial detection + visual safety integrated |
+| **Fusion** | ~80% | ✅ DOA+Depth person matching implemented |
 
-The biggest untapped value is **OAK-D depth sensing** - we have a stereo camera but only use it as a webcam.
+### Recent Improvements
+
+1. **Spatial Detection** (`spatial_tracker.py`)
+   - Stereo depth pipeline enabled
+   - 3D person positions (x, y, z in mm)
+   - Angle and distance from camera center
+   - `get_person_at_angle()` for DOA fusion
+
+2. **DOA + Spatial Fusion** (`doa_spatial_fusion.py`)
+   - Combines ReSpeaker DOA with OAK-D spatial detection
+   - Gaussian scoring for angular match
+   - Depth confidence weighting
+   - Active speaker identification in multi-person scenes
+
+3. **Visual Safety Integration**
+   - `spatial_tracker.enable_visual_safety()` feeds frames to hazard detection
+   - Fire and smoke detection via `visual_safety.py`
+   - Runs automatically with camera loop
+
+### Remaining Work
+
+1. **AEC Reference** (Priority: HIGH)
+   - Route speaker audio through ReSpeaker for echo cancellation
+
+2. **Move YOLO to VPU** (Priority: MEDIUM)
+   - Currently runs on Jetson CPU
+   - Could run on OAK-D's Myriad X for lower latency
+
+3. **Voice + Face Identity Fusion** (Priority: MEDIUM)
+   - DOA+Depth now identifies WHO is speaking
+   - Next: Link to face/voice embeddings for named identity
