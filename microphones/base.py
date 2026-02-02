@@ -16,6 +16,7 @@ class MicrophoneType(Enum):
     RESPEAKER_4MIC = "respeaker_4mic"
     RESPEAKER_6MIC = "respeaker_6mic"
     CIRCULAR_6MIC = "circular_6mic"
+    UNITREE_4MIC = "unitree_4mic"
     MATRIX_VOICE = "matrix_voice"
     ODAS = "odas"  # Generic ODAS-based array
 

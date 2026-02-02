@@ -20,6 +20,8 @@ class CameraType(Enum):
     ZED_X = "zed_x"
     ZED_2 = "zed_2"
     REALSENSE = "realsense"
+    REALSENSE_D435 = "realsense_d435"
+    REALSENSE_D455 = "realsense_d455"
 
 
 @dataclass

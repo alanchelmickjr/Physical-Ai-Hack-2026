@@ -10,6 +10,7 @@
 [![Hume EVI](https://img.shields.io/badge/Voice-Hume_EVI-FF6B6B)](https://hume.ai)
 [![OAK-D](https://img.shields.io/badge/Camera-OAK--D_Pro-00A0DC)](https://docs.luxonis.com/)
 [![ZED](https://img.shields.io/badge/Camera-ZED_X-00A0DC)](https://www.stereolabs.com/)
+[![RealSense](https://img.shields.io/badge/Camera-RealSense_D435-0071C5)](https://www.intelrealsense.com/)
 [![ReSpeaker](https://img.shields.io/badge/Mic-ReSpeaker_4--Mic-00C853)](https://wiki.seeedstudio.com/ReSpeaker_Mic_Array_v2.0/)
 [![Solo-CLI](https://img.shields.io/badge/Motors-Solo--CLI-FF9800)](https://github.com/TheRobotStudio/SO-ARM100)
 
@@ -184,19 +185,26 @@ Physical-Ai-Hack-2026/
 ├── adapters/                    # Robot hardware adapters (drop-in)
 │   ├── base.py                  # Abstract RobotAdapter interface
 │   ├── johnny5.py               # Johnny Five (Solo-CLI/Feetech)
-│   └── booster_k1.py            # Booster K1 (ROS2/bipedal)
+│   ├── booster_k1.py            # Booster K1 (ROS2/bipedal)
+│   └── unitree_g1.py            # Unitree G1 (unitree_sdk2/ROS2)
 │
 ├── cameras/                     # Camera abstraction layer
 │   ├── base.py                  # Abstract SpatialCamera interface
 │   ├── oakd.py                  # OAK-D / OAK-D Pro (VPU YOLO)
 │   ├── zed.py                   # ZED / ZED X / ZED 2
+│   ├── realsense.py             # Intel RealSense D435/D455
 │   └── factory.py               # Camera factory
 │
 ├── microphones/                 # Microphone array abstraction
 │   ├── base.py                  # Abstract MicrophoneArray interface
 │   ├── respeaker.py             # ReSpeaker 4/6-Mic USB arrays
 │   ├── circular6.py             # Generic circular 6-mic (SRP-PHAT)
+│   ├── unitree.py               # Unitree G1 built-in 4-mic
 │   └── factory.py               # Microphone factory
+│
+├── actions/                     # Unified action primitives
+│   ├── base.py                  # Abstract action definitions
+│   └── unified.py               # UnifiedActions interface
 │
 ├── config/                      # Configuration
 │   ├── hardware.py              # Johnny Five motor config
@@ -278,6 +286,7 @@ Johnny Five is designed to exist in **multiple bodies simultaneously**. The same
 |----------|--------|------------|------------|--------|
 | **Johnny Five** | OAK-D Pro | ReSpeaker 4-Mic | Mecanum wheels | Production |
 | **Booster K1** | ZED X | Circular 6-Mic | Bipedal (22 DOF) | Supported |
+| **Unitree G1** | RealSense D435 | Built-in 4-Mic | Bipedal (23-43 DOF) | Supported |
 
 ### Quick Start
 
@@ -295,6 +304,32 @@ await robot.adapter.connect()
 robot.start_sensors()
 
 # Identity persists across bodies via Gun.js
+```
+
+### Unified Actions API
+
+```python
+from robot_factory import create_robot
+from actions import UnifiedActions, Target, Hand, GestureType
+
+robot = create_robot()
+await robot.adapter.connect()
+
+actions = UnifiedActions(robot)
+
+# These work on any robot body
+await actions.wave()                              # Wave hello
+await actions.wave(hand=Hand.LEFT)                # Wave with left hand
+await actions.look_at(Target.from_angle(45))      # Look right 45°
+await actions.nod()                               # Nod yes
+await actions.gesture(GestureType.THUMBS_UP)      # Thumbs up
+
+# Locomotion (adapts to wheels vs bipedal)
+await actions.walk_to(Target.from_position(1.0, 0.0))
+await actions.turn(angle=90)
+
+# Compound actions
+await actions.greet(target=person)                # Look + wave
 ```
 
 ### Adding a New Robot
@@ -347,6 +382,8 @@ See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for details
 | `motion_coordinator.py` | The "spine" - coordinates all movement, gestures, safety |
 | `adapters/base.py` | Abstract RobotAdapter interface (implement for new robots) |
 | `adapters/booster_k1.py` | Booster K1 adapter (ROS2 bipedal) |
+| `adapters/unitree_g1.py` | Unitree G1 adapter (unitree_sdk2/ROS2) |
+| `actions/unified.py` | Unified action primitives (wave, point, walk, etc.) |
 | `cameras/base.py` | Abstract SpatialCamera interface (OAK-D, ZED, etc.) |
 | `microphones/base.py` | Abstract MicrophoneArray interface (DOA, VAD) |
 | `config/robots.py` | Multi-robot configuration registry |
