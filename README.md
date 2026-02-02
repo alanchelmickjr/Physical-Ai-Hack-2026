@@ -224,7 +224,7 @@ Physical-Ai-Hack-2026/
 │
 └── forks/                       # Forked dependencies (custom code)
     ├── johnny5-lerobot/         # LeRobot fork with Johnny Five config
-    └── johnny5-solo/            # Solo-CLI fork with multi-bus/gantry
+    └── johnny5-solo/            # Solo-CLI fork (+gantry, lift, hitch)
 ```
 
 ---

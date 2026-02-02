@@ -19,12 +19,12 @@ LeRobot variant adapted for Johnny Five. Custom additions:
 **Forked from:** https://github.com/TheRobotStudio/SO-ARM100
 **Our fork:** https://github.com/alanchelmickjr/johnny5-solo
 
-Solo-CLI fork with Johnny Five extensions:
-- Multi-bus support for split arm configuration
-- Gantry pan/tilt commands
-- Lift and hitch motor control
-- Wheel velocity mode for mecanum drive
-- Calibration profiles for Johnny Five hardware
+Solo-CLI already supports LeKiwi (base) and XLe (arms). Our fork adds:
+- Gantry pan/tilt motor control (motors 7-8 on ACM1)
+- Lift motor control (motor 10 on ACM0)
+- Hitch motor control (motor 11 on ACM0)
+- Johnny Five calibration profiles
+- Camera gantry integration
 
 ## Setup
 
