@@ -223,6 +223,343 @@ class ToolRegistry:
             }
         ))
 
+        # =====================================================================
+        # DIAGNOSTIC TOOLS
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="scan_motors",
+            description="Scan for connected motors on a bus and report their status",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "bus": {
+                        "type": "string",
+                        "enum": ["left", "right", "both"],
+                        "default": "both",
+                        "description": "Which bus to scan (left=ACM0, right=ACM1)"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="motor_status",
+            description="Get detailed status of a specific motor or subsystem",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "subsystem": {
+                        "type": "string",
+                        "enum": ["left_arm", "right_arm", "gantry", "lift", "base", "all"],
+                        "description": "Which subsystem to check"
+                    },
+                    "motor_id": {
+                        "type": "integer",
+                        "description": "Specific motor ID (optional, checks all in subsystem if not specified)"
+                    }
+                },
+                "required": ["subsystem"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="test_motor",
+            description="Test a single motor by moving it slightly and back",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "bus": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "description": "Which bus (left=ACM0, right=ACM1)"
+                    },
+                    "motor_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "Motor ID to test"
+                    },
+                    "angle": {
+                        "type": "number",
+                        "default": 10,
+                        "description": "Degrees to move for test"
+                    }
+                },
+                "required": ["bus", "motor_id"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="check_torque",
+            description="Check if motors have torque enabled",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "subsystem": {
+                        "type": "string",
+                        "enum": ["left_arm", "right_arm", "gantry", "lift", "base", "all"],
+                        "description": "Which subsystem to check"
+                    }
+                },
+                "required": ["subsystem"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="enable_torque",
+            description="Enable or disable torque on motors",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "subsystem": {
+                        "type": "string",
+                        "enum": ["left_arm", "right_arm", "gantry", "lift", "base", "all"],
+                        "description": "Which subsystem"
+                    },
+                    "enable": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "True to enable, False to disable (limp mode)"
+                    }
+                },
+                "required": ["subsystem"]
+            }
+        ))
+
+        # =====================================================================
+        # SETUP & CALIBRATION TOOLS
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="calibrate_arm",
+            description="Run calibration sequence for an SO101 arm",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "arm": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "description": "Which arm to calibrate"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["full", "quick", "offsets_only"],
+                        "default": "quick",
+                        "description": "Calibration mode"
+                    }
+                },
+                "required": ["arm"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="calibrate_gantry",
+            description="Calibrate the camera gantry (pan/tilt)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["full", "center_only"],
+                        "default": "center_only",
+                        "description": "Calibration mode"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="calibrate_lift",
+            description="Calibrate the 30cm lift mechanism",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "find_limits": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Find top and bottom limits"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="calibrate_base",
+            description="Calibrate the mecanum wheel base",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["wheel_test", "drive_test", "full"],
+                        "default": "wheel_test",
+                        "description": "Calibration mode"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="set_motor_id",
+            description="Change a motor's ID (use during initial setup)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "bus": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "description": "Which bus"
+                    },
+                    "current_id": {
+                        "type": "integer",
+                        "description": "Current motor ID"
+                    },
+                    "new_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 253,
+                        "description": "New motor ID"
+                    }
+                },
+                "required": ["bus", "current_id", "new_id"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="set_home_position",
+            description="Set current position as home for a subsystem",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "subsystem": {
+                        "type": "string",
+                        "enum": ["left_arm", "right_arm", "gantry", "lift"],
+                        "description": "Which subsystem"
+                    }
+                },
+                "required": ["subsystem"]
+            }
+        ))
+
+        # =====================================================================
+        # LIFT CONTROL
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="lift",
+            description="Control the 30cm lift mechanism",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["up", "down", "home", "top", "bottom"],
+                        "description": "Lift action"
+                    },
+                    "distance_mm": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 300,
+                        "description": "Distance in mm (for up/down)"
+                    },
+                    "position_mm": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 300,
+                        "description": "Absolute position in mm"
+                    }
+                },
+                "required": ["action"]
+            }
+        ))
+
+        # =====================================================================
+        # FULL SYSTEM SETUP
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="setup_robot",
+            description="Run full robot setup sequence",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["scan", "calibrate_arms", "calibrate_gantry", "calibrate_lift", "calibrate_base", "test_all"]
+                        },
+                        "default": ["scan", "calibrate_arms", "calibrate_gantry"],
+                        "description": "Which setup steps to run"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="self_test",
+            description="Run self-test on all subsystems",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "subsystems": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["left_arm", "right_arm", "gantry", "lift", "base"]
+                        },
+                        "default": ["left_arm", "right_arm", "gantry"],
+                        "description": "Which subsystems to test"
+                    },
+                    "verbose": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Report detailed results"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="save_config",
+            description="Save current motor positions and settings as a named configuration",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name for this configuration"
+                    },
+                    "subsystems": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["left_arm", "right_arm", "gantry", "lift", "base", "all"]
+                        },
+                        "default": ["all"],
+                        "description": "Which subsystems to save"
+                    }
+                },
+                "required": ["name"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="load_config",
+            description="Load a saved configuration",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of configuration to load"
+                    }
+                },
+                "required": ["name"]
+            }
+        ))
+
 
 def tool(name: str, description: str, **params):
     """Decorator to register a function as a tool.

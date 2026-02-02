@@ -110,6 +110,7 @@ class ToolExecutionEngine:
 
     def _register_default_parsers(self) -> None:
         """Register parsers for built-in tools."""
+        # Movement tools
         self.tool_parsers["wave"] = self._parse_wave
         self.tool_parsers["move_arm"] = self._parse_move_arm
         self.tool_parsers["look_at"] = self._parse_look_at
@@ -117,6 +118,27 @@ class ToolExecutionEngine:
         self.tool_parsers["move_base"] = self._parse_move_base
         self.tool_parsers["stop"] = self._parse_stop
         self.tool_parsers["go_to_pose"] = self._parse_go_to_pose
+        self.tool_parsers["gripper"] = self._parse_gripper
+        self.tool_parsers["lift"] = self._parse_lift
+
+        # Diagnostic tools
+        self.tool_parsers["scan_motors"] = self._parse_scan_motors
+        self.tool_parsers["motor_status"] = self._parse_motor_status
+        self.tool_parsers["test_motor"] = self._parse_test_motor
+        self.tool_parsers["check_torque"] = self._parse_check_torque
+        self.tool_parsers["enable_torque"] = self._parse_enable_torque
+
+        # Setup/calibration tools
+        self.tool_parsers["calibrate_arm"] = self._parse_calibrate_arm
+        self.tool_parsers["calibrate_gantry"] = self._parse_calibrate_gantry
+        self.tool_parsers["calibrate_lift"] = self._parse_calibrate_lift
+        self.tool_parsers["calibrate_base"] = self._parse_calibrate_base
+        self.tool_parsers["set_motor_id"] = self._parse_set_motor_id
+        self.tool_parsers["set_home_position"] = self._parse_set_home_position
+        self.tool_parsers["setup_robot"] = self._parse_setup_robot
+        self.tool_parsers["self_test"] = self._parse_self_test
+        self.tool_parsers["save_config"] = self._parse_save_config
+        self.tool_parsers["load_config"] = self._parse_load_config
 
     def register_parser(
         self, tool_name: str, parser: Callable[[Dict], ActionGraph]
@@ -410,6 +432,353 @@ class ToolExecutionEngine:
             subsystem="all",
             params={"pose": pose},
             timeout=15.0
+        ))
+
+        return graph
+
+    def _parse_gripper(self, args: Dict) -> ActionGraph:
+        """Parse gripper tool."""
+        graph = ActionGraph()
+        arm = args.get("arm", "right")
+        action = args.get("action", "toggle")
+
+        subsystem = "right_arm" if arm == "right" else "left_arm"
+
+        graph.add_action(ActionPrimitive(
+            name="gripper",
+            subsystem=subsystem,
+            params={"action": action},
+            timeout=3.0
+        ))
+
+        return graph
+
+    def _parse_lift(self, args: Dict) -> ActionGraph:
+        """Parse lift tool."""
+        graph = ActionGraph()
+        action = args.get("action", "home")
+        distance_mm = args.get("distance_mm", 50)
+        position_mm = args.get("position_mm")
+
+        graph.add_action(ActionPrimitive(
+            name="lift",
+            subsystem="lift",
+            params={
+                "action": action,
+                "distance_mm": distance_mm,
+                "position_mm": position_mm
+            },
+            timeout=10.0
+        ))
+
+        return graph
+
+    # =========================================================================
+    # Diagnostic Tool Parsers
+    # =========================================================================
+
+    def _parse_scan_motors(self, args: Dict) -> ActionGraph:
+        """Parse scan_motors tool."""
+        graph = ActionGraph()
+        bus = args.get("bus", "both")
+
+        if bus in ("left", "both"):
+            graph.add_action(ActionPrimitive(
+                name="scan_motors",
+                subsystem="left_arm",
+                params={"port": "/dev/ttyACM0"},
+                timeout=10.0
+            ))
+
+        if bus in ("right", "both"):
+            graph.add_action(ActionPrimitive(
+                name="scan_motors",
+                subsystem="right_arm",
+                params={"port": "/dev/ttyACM1"},
+                timeout=10.0
+            ))
+
+        return graph
+
+    def _parse_motor_status(self, args: Dict) -> ActionGraph:
+        """Parse motor_status tool."""
+        graph = ActionGraph()
+        subsystem = args.get("subsystem", "all")
+        motor_id = args.get("motor_id")
+
+        graph.add_action(ActionPrimitive(
+            name="motor_status",
+            subsystem=subsystem,
+            params={"motor_id": motor_id},
+            timeout=5.0
+        ))
+
+        return graph
+
+    def _parse_test_motor(self, args: Dict) -> ActionGraph:
+        """Parse test_motor tool."""
+        graph = ActionGraph()
+        bus = args.get("bus", "right")
+        motor_id = args.get("motor_id", 1)
+        angle = args.get("angle", 10)
+
+        subsystem = "left_arm" if bus == "left" else "right_arm"
+
+        graph.add_action(ActionPrimitive(
+            name="test_motor",
+            subsystem=subsystem,
+            params={"motor_id": motor_id, "angle": angle},
+            timeout=5.0
+        ))
+
+        return graph
+
+    def _parse_check_torque(self, args: Dict) -> ActionGraph:
+        """Parse check_torque tool."""
+        graph = ActionGraph()
+        subsystem = args.get("subsystem", "all")
+
+        graph.add_action(ActionPrimitive(
+            name="check_torque",
+            subsystem=subsystem,
+            params={},
+            timeout=5.0
+        ))
+
+        return graph
+
+    def _parse_enable_torque(self, args: Dict) -> ActionGraph:
+        """Parse enable_torque tool."""
+        graph = ActionGraph()
+        subsystem = args.get("subsystem", "all")
+        enable = args.get("enable", True)
+
+        graph.add_action(ActionPrimitive(
+            name="enable_torque",
+            subsystem=subsystem,
+            params={"enable": enable},
+            timeout=5.0
+        ))
+
+        return graph
+
+    # =========================================================================
+    # Setup/Calibration Tool Parsers
+    # =========================================================================
+
+    def _parse_calibrate_arm(self, args: Dict) -> ActionGraph:
+        """Parse calibrate_arm tool."""
+        graph = ActionGraph()
+        arm = args.get("arm", "right")
+        mode = args.get("mode", "quick")
+
+        subsystem = "right_arm" if arm == "right" else "left_arm"
+
+        graph.add_action(ActionPrimitive(
+            name="calibrate",
+            subsystem=subsystem,
+            params={"mode": mode},
+            timeout=60.0
+        ))
+
+        return graph
+
+    def _parse_calibrate_gantry(self, args: Dict) -> ActionGraph:
+        """Parse calibrate_gantry tool."""
+        graph = ActionGraph()
+        mode = args.get("mode", "center_only")
+
+        graph.add_action(ActionPrimitive(
+            name="calibrate",
+            subsystem="gantry",
+            params={"mode": mode},
+            timeout=30.0
+        ))
+
+        return graph
+
+    def _parse_calibrate_lift(self, args: Dict) -> ActionGraph:
+        """Parse calibrate_lift tool."""
+        graph = ActionGraph()
+        find_limits = args.get("find_limits", True)
+
+        graph.add_action(ActionPrimitive(
+            name="calibrate",
+            subsystem="lift",
+            params={"find_limits": find_limits},
+            timeout=30.0
+        ))
+
+        return graph
+
+    def _parse_calibrate_base(self, args: Dict) -> ActionGraph:
+        """Parse calibrate_base tool."""
+        graph = ActionGraph()
+        mode = args.get("mode", "wheel_test")
+
+        graph.add_action(ActionPrimitive(
+            name="calibrate",
+            subsystem="base",
+            params={"mode": mode},
+            timeout=30.0
+        ))
+
+        return graph
+
+    def _parse_set_motor_id(self, args: Dict) -> ActionGraph:
+        """Parse set_motor_id tool."""
+        graph = ActionGraph()
+        bus = args.get("bus", "right")
+        current_id = args.get("current_id", 1)
+        new_id = args.get("new_id", 1)
+
+        subsystem = "left_arm" if bus == "left" else "right_arm"
+
+        graph.add_action(ActionPrimitive(
+            name="set_motor_id",
+            subsystem=subsystem,
+            params={"current_id": current_id, "new_id": new_id},
+            timeout=5.0
+        ))
+
+        return graph
+
+    def _parse_set_home_position(self, args: Dict) -> ActionGraph:
+        """Parse set_home_position tool."""
+        graph = ActionGraph()
+        subsystem = args.get("subsystem", "right_arm")
+
+        graph.add_action(ActionPrimitive(
+            name="set_home_position",
+            subsystem=subsystem,
+            params={},
+            timeout=5.0
+        ))
+
+        return graph
+
+    def _parse_setup_robot(self, args: Dict) -> ActionGraph:
+        """Parse setup_robot tool - runs multiple calibration steps."""
+        graph = ActionGraph()
+        steps = args.get("steps", ["scan", "calibrate_arms", "calibrate_gantry"])
+
+        # Build action sequence based on steps
+        prev_action = None
+
+        if "scan" in steps:
+            graph.add_action(ActionPrimitive(
+                name="scan_motors",
+                subsystem="all",
+                params={},
+                timeout=15.0,
+                dependencies=[]
+            ))
+            prev_action = "scan_motors"
+
+        if "calibrate_arms" in steps:
+            deps = [prev_action] if prev_action else []
+            graph.add_action(ActionPrimitive(
+                name="calibrate",
+                subsystem="left_arm",
+                params={"mode": "quick"},
+                timeout=60.0,
+                dependencies=deps
+            ))
+            graph.add_action(ActionPrimitive(
+                name="calibrate",
+                subsystem="right_arm",
+                params={"mode": "quick"},
+                timeout=60.0,
+                dependencies=deps
+            ))
+            prev_action = "calibrate"
+
+        if "calibrate_gantry" in steps:
+            deps = [prev_action] if prev_action else []
+            graph.add_action(ActionPrimitive(
+                name="calibrate_gantry",
+                subsystem="gantry",
+                params={"mode": "center_only"},
+                timeout=30.0,
+                dependencies=deps
+            ))
+            prev_action = "calibrate_gantry"
+
+        if "calibrate_lift" in steps:
+            deps = [prev_action] if prev_action else []
+            graph.add_action(ActionPrimitive(
+                name="calibrate_lift",
+                subsystem="lift",
+                params={"find_limits": True},
+                timeout=30.0,
+                dependencies=deps
+            ))
+            prev_action = "calibrate_lift"
+
+        if "calibrate_base" in steps:
+            deps = [prev_action] if prev_action else []
+            graph.add_action(ActionPrimitive(
+                name="calibrate_base",
+                subsystem="base",
+                params={"mode": "wheel_test"},
+                timeout=30.0,
+                dependencies=deps
+            ))
+            prev_action = "calibrate_base"
+
+        if "test_all" in steps:
+            deps = [prev_action] if prev_action else []
+            graph.add_action(ActionPrimitive(
+                name="self_test",
+                subsystem="all",
+                params={"verbose": True},
+                timeout=60.0,
+                dependencies=deps
+            ))
+
+        return graph
+
+    def _parse_self_test(self, args: Dict) -> ActionGraph:
+        """Parse self_test tool."""
+        graph = ActionGraph()
+        subsystems = args.get("subsystems", ["left_arm", "right_arm", "gantry"])
+        verbose = args.get("verbose", False)
+
+        for subsystem in subsystems:
+            graph.add_action(ActionPrimitive(
+                name="self_test",
+                subsystem=subsystem,
+                params={"verbose": verbose},
+                timeout=30.0
+            ))
+
+        return graph
+
+    def _parse_save_config(self, args: Dict) -> ActionGraph:
+        """Parse save_config tool."""
+        graph = ActionGraph()
+        name = args.get("name", "default")
+        subsystems = args.get("subsystems", ["all"])
+
+        graph.add_action(ActionPrimitive(
+            name="save_config",
+            subsystem="all",
+            params={"name": name, "subsystems": subsystems},
+            timeout=5.0
+        ))
+
+        return graph
+
+    def _parse_load_config(self, args: Dict) -> ActionGraph:
+        """Parse load_config tool."""
+        graph = ActionGraph()
+        name = args.get("name", "default")
+
+        graph.add_action(ActionPrimitive(
+            name="load_config",
+            subsystem="all",
+            params={"name": name},
+            timeout=10.0
         ))
 
         return graph
