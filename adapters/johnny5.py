@@ -24,29 +24,11 @@ from .base import (
     ActionResult,
     ActionPrimitive,
 )
+from config.hardware import HardwareConfig, get_hardware_config
+from config.motors import MotorInterface, get_motor_interface
 
-
-@dataclass
-class Johnny5HardwareConfig:
-    """Hardware configuration for Johnny Five robots."""
-
-    # Serial ports
-    left_port: str = "/dev/ttyACM0"
-    right_port: str = "/dev/ttyACM1"
-    baudrate: int = 1_000_000
-
-    # Motor IDs per subsystem
-    left_arm_ids: tuple = (1, 2, 3, 4, 5, 6)
-    right_arm_ids: tuple = (1, 2, 3, 4, 5, 6)
-    wheel_ids: tuple = (7, 8, 9)
-    lift_ids: tuple = (10,)
-    gantry_ids: tuple = (7, 8)
-
-    # Joint limits (degrees)
-    arm_limits: tuple = (-150, 150)
-    gantry_pan_limits: tuple = (-90, 90)
-    gantry_tilt_limits: tuple = (-45, 45)
-    lift_limits: tuple = (0, 300)  # mm
+# Johnny5HardwareConfig moved to config.hardware.HardwareConfig (single source of truth)
+Johnny5HardwareConfig = HardwareConfig  # Alias for backwards compatibility
 
 
 # Named poses for Johnny Five robots
@@ -99,9 +81,10 @@ class Johnny5Adapter(RobotAdapter):
     for low-latency emergency stop.
     """
 
-    def __init__(self, config: Optional[Johnny5HardwareConfig] = None):
+    def __init__(self, config: Optional[HardwareConfig] = None):
         super().__init__()
-        self.config = config or Johnny5HardwareConfig()
+        self.config = config or get_hardware_config()
+        self.motors = get_motor_interface()
         self._serial_left = None
         self._serial_right = None
         self._connected = False
@@ -113,13 +96,13 @@ class Johnny5Adapter(RobotAdapter):
             # Direct serial connection would be:
             # import serial
             # self._serial_left = serial.Serial(
-            #     self.config.left_port,
-            #     self.config.baudrate,
+            #     self.config.LEFT_PORT,
+            #     self.config.BAUDRATE,
             #     timeout=0.1
             # )
             # self._serial_right = serial.Serial(
-            #     self.config.right_port,
-            #     self.config.baudrate,
+            #     self.config.RIGHT_PORT,
+            #     self.config.BAUDRATE,
             #     timeout=0.1
             # )
 
@@ -272,15 +255,15 @@ class Johnny5Adapter(RobotAdapter):
     def _get_port_and_ids(self, subsystem: Subsystem) -> tuple:
         """Get serial port and motor IDs for a subsystem."""
         mapping = {
-            Subsystem.LEFT_ARM: (self.config.left_port, self.config.left_arm_ids),
-            Subsystem.RIGHT_ARM: (self.config.right_port, self.config.right_arm_ids),
-            Subsystem.BASE: (self.config.left_port, self.config.wheel_ids),
-            Subsystem.LIFT: (self.config.left_port, self.config.lift_ids),
-            Subsystem.GANTRY: (self.config.right_port, self.config.gantry_ids),
-            Subsystem.GRIPPER_LEFT: (self.config.left_port, (6,)),
-            Subsystem.GRIPPER_RIGHT: (self.config.right_port, (6,)),
+            Subsystem.LEFT_ARM: (self.config.LEFT_PORT, self.config.LEFT_ARM_IDS),
+            Subsystem.RIGHT_ARM: (self.config.RIGHT_PORT, self.config.RIGHT_ARM_IDS),
+            Subsystem.BASE: (self.config.LEFT_PORT, self.config.WHEEL_IDS),
+            Subsystem.LIFT: (self.config.LEFT_PORT, (self.config.LIFT_ID,)),
+            Subsystem.GANTRY: (self.config.RIGHT_PORT, self.config.GANTRY_IDS),
+            Subsystem.GRIPPER_LEFT: (self.config.LEFT_PORT, (6,)),
+            Subsystem.GRIPPER_RIGHT: (self.config.RIGHT_PORT, (6,)),
         }
-        return mapping.get(subsystem, (self.config.left_port, ()))
+        return mapping.get(subsystem, (self.config.LEFT_PORT, ()))
 
     async def _run_solo_command(self, cmd: List[str]) -> subprocess.CompletedProcess:
         """Run a Solo-CLI command asynchronously."""
@@ -394,8 +377,8 @@ class Johnny5Adapter(RobotAdapter):
 
         cmd = [
             "solo", "robo",
-            "--port", self.config.left_port,
-            "--ids", ",".join(map(str, self.config.wheel_ids)),
+            "--port", self.config.LEFT_PORT,
+            "--ids", ",".join(map(str, self.config.WHEEL_IDS)),
             "--velocities", ",".join(map(str, vels)),
             "--duration", str(duration)
         ]
@@ -488,12 +471,12 @@ class Johnny5Adapter(RobotAdapter):
         # Disable both buses
         await asyncio.gather(
             self._disable_torque(
-                self.config.left_port,
-                self.config.left_arm_ids + self.config.wheel_ids + self.config.lift_ids
+                self.config.LEFT_PORT,
+                self.config.LEFT_ARM_IDS + self.config.WHEEL_IDS + (self.config.LIFT_ID,)
             ),
             self._disable_torque(
-                self.config.right_port,
-                self.config.right_arm_ids + self.config.gantry_ids
+                self.config.RIGHT_PORT,
+                self.config.RIGHT_ARM_IDS + self.config.GANTRY_IDS
             )
         )
 
@@ -508,7 +491,7 @@ class Johnny5Adapter(RobotAdapter):
             Dict mapping motor ID to whether it responds
         """
         results = {}
-        max_id = 10 if port == self.config.left_port else 8
+        max_id = 10 if port == self.config.LEFT_PORT else 8
 
         for motor_id in range(1, max_id + 1):
             cmd = [
@@ -619,8 +602,8 @@ class Johnny5Adapter(RobotAdapter):
             - full: Disable torque, wait for manual positioning, set home
             - offsets_only: Read current positions and save as offsets
         """
-        port = self.config.left_port if arm == "left" else self.config.right_port
-        ids = self.config.left_arm_ids if arm == "left" else self.config.right_arm_ids
+        port = self.config.LEFT_PORT if arm == "left" else self.config.RIGHT_PORT
+        ids = self.config.LEFT_ARM_IDS if arm == "left" else self.config.RIGHT_ARM_IDS
 
         if mode == "full":
             # Disable torque for manual positioning
@@ -671,8 +654,8 @@ class Johnny5Adapter(RobotAdapter):
 
     async def calibrate_gantry(self, mode: str = "center_only") -> ActionResult:
         """Calibrate the camera gantry."""
-        port = self.config.right_port
-        ids = self.config.gantry_ids
+        port = self.config.RIGHT_PORT
+        ids = self.config.GANTRY_IDS
 
         if mode == "center_only":
             # Set current as center
@@ -738,8 +721,8 @@ class Johnny5Adapter(RobotAdapter):
 
     async def calibrate_lift(self, find_limits: bool = True) -> ActionResult:
         """Calibrate the lift mechanism."""
-        port = self.config.left_port
-        lift_id = self.config.lift_ids[0]
+        port = self.config.LEFT_PORT
+        lift_id = (self.config.LIFT_ID,)[0]
 
         if find_limits:
             # Move down slowly until stall detected
@@ -785,8 +768,8 @@ class Johnny5Adapter(RobotAdapter):
 
     async def calibrate_base(self, mode: str = "wheel_test") -> ActionResult:
         """Calibrate the mecanum base."""
-        port = self.config.left_port
-        ids = self.config.wheel_ids
+        port = self.config.LEFT_PORT
+        ids = self.config.WHEEL_IDS
 
         if mode == "wheel_test":
             # Test each wheel individually
@@ -874,15 +857,15 @@ class Johnny5Adapter(RobotAdapter):
 
         for subsystem in subsystems:
             if subsystem == "left_arm":
-                port, ids = self.config.left_port, self.config.left_arm_ids
+                port, ids = self.config.LEFT_PORT, self.config.LEFT_ARM_IDS
             elif subsystem == "right_arm":
-                port, ids = self.config.right_port, self.config.right_arm_ids
+                port, ids = self.config.RIGHT_PORT, self.config.RIGHT_ARM_IDS
             elif subsystem == "gantry":
-                port, ids = self.config.right_port, self.config.gantry_ids
+                port, ids = self.config.RIGHT_PORT, self.config.GANTRY_IDS
             elif subsystem == "lift":
-                port, ids = self.config.left_port, self.config.lift_ids
+                port, ids = self.config.LEFT_PORT, (self.config.LIFT_ID,)
             elif subsystem == "base":
-                port, ids = self.config.left_port, self.config.wheel_ids
+                port, ids = self.config.LEFT_PORT, self.config.WHEEL_IDS
             else:
                 continue
 

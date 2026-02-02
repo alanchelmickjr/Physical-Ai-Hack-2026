@@ -30,6 +30,8 @@ from enum import Enum, auto
 
 from head_tracker import HeadTracker, SpeakerState, SpeakerLocation, get_head_tracker
 from doa_reader import ReSpeakerDOA, get_doa
+from config.hardware import HardwareConfig, get_hardware_config
+from config.motors import MotorInterface, ServoHealth, get_motor_interface
 
 
 class Gesture(Enum):
@@ -53,30 +55,8 @@ class AttentionTarget(Enum):
     REST = auto()         # Neutral position
 
 
-@dataclass
-class MotorConfig:
-    """Hardware configuration for motors."""
-    # Serial ports
-    left_port: str = "/dev/ttyACM0"
-    right_port: str = "/dev/ttyACM1"
-
-    # Motor IDs
-    left_arm_ids: tuple = (1, 2, 3, 4, 5, 6)
-    right_arm_ids: tuple = (1, 2, 3, 4, 5, 6)
-    wheel_ids: tuple = (7, 8, 9)    # On left port
-    lift_id: int = 10                # On left port
-    gantry_ids: tuple = (7, 8)      # Pan, Tilt on right port
-
-    # Limits
-    pan_min: float = -90.0
-    pan_max: float = 90.0
-    tilt_min: float = -45.0
-    tilt_max: float = 45.0
-
-    # Speeds (0-1)
-    track_speed: float = 0.5
-    gesture_speed: float = 0.7
-    base_speed: float = 0.3
+# MotorConfig moved to config.hardware.HardwareConfig (single source of truth)
+MotorConfig = HardwareConfig  # Alias for backwards compatibility
 
 
 @dataclass
@@ -90,17 +70,7 @@ class PersonMemory:
     last_pointed_at: float = 0.0  # When we last pointed at them (don't be rude)
 
 
-@dataclass
-class ServoHealth:
-    """Health status of a servo."""
-    motor_id: int
-    bus: str
-    responding: bool = True
-    temperature: float = 0.0
-    load: float = 0.0
-    voltage: float = 0.0
-    error_code: int = 0
-    last_check: float = 0.0
+# ServoHealth moved to config.motors (single source of truth)
 
 
 class GestureStyle(Enum):
@@ -123,8 +93,9 @@ class MotionCoordinator:
     This class translates those intents to motor commands.
     """
 
-    def __init__(self, config: Optional[MotorConfig] = None):
-        self.config = config or MotorConfig()
+    def __init__(self, config: Optional[HardwareConfig] = None):
+        self.config = config or get_hardware_config()
+        self.motors = get_motor_interface()
 
         # Subsystems
         self.doa = get_doa()
@@ -205,7 +176,7 @@ class MotionCoordinator:
 
             # Convert their remembered DOA to pan angle
             pan = self.head_tracker.doa.doa_to_robot_pan(person.last_doa)
-            await self._move_gantry(pan, 0, self.config.track_speed)
+            await self._move_gantry(pan, 0, self.config.TRACK_SPEED)
 
     async def look_direction(self, direction: str):
         """Look in a named direction.
@@ -227,7 +198,7 @@ class MotionCoordinator:
             return
 
         pan, tilt = directions.get(direction, (0, 0))
-        await self._move_gantry(pan, tilt, self.config.track_speed)
+        await self._move_gantry(pan, tilt, self.config.TRACK_SPEED)
 
     async def turn_to_speaker(self):
         """Turn the entire robot to face the current speaker.
@@ -245,12 +216,12 @@ class MotionCoordinator:
 
             # After rotating, center the head
             await asyncio.sleep(0.5)
-            await self._move_gantry(0, 0, self.config.track_speed)
+            await self._move_gantry(0, 0, self.config.TRACK_SPEED)
 
     async def turn_around(self):
         """Turn 180 degrees (someone is behind)."""
         await self._rotate_base(180)
-        await self._move_gantry(0, 0, self.config.track_speed)
+        await self._move_gantry(0, 0, self.config.TRACK_SPEED)
 
     async def wave(self, arm: str = "right", style: str = "friendly"):
         """Wave hello or goodbye.
@@ -290,13 +261,13 @@ class MotionCoordinator:
         """Return to neutral home position."""
         self._attention = AttentionTarget.REST
         await asyncio.gather(
-            self._move_gantry(0, 0, self.config.track_speed),
+            self._move_gantry(0, 0, self.config.TRACK_SPEED),
             self._arms_to_pose("home")
         )
 
     async def center_head(self):
         """Just center the head (look forward)."""
-        await self._move_gantry(0, 0, self.config.track_speed)
+        await self._move_gantry(0, 0, self.config.TRACK_SPEED)
 
     # =========================================================================
     # Speech Integration - React while talking/listening
@@ -523,13 +494,13 @@ class MotionCoordinator:
     async def check_all_servos(self) -> Dict[str, ServoHealth]:
         """Check health of all servos and return status."""
         all_servos = {
-            "left": list(self.config.left_arm_ids) + list(self.config.wheel_ids) + [self.config.lift_id, 11],
-            "right": list(self.config.right_arm_ids) + list(self.config.gantry_ids),
+            "left": list(self.config.LEFT_ARM_IDS) + list(self.config.WHEEL_IDS) + [self.config.LIFT_ID, 11],
+            "right": list(self.config.RIGHT_ARM_IDS) + list(self.config.GANTRY_IDS),
         }
 
         results = {}
         for bus, motor_ids in all_servos.items():
-            port = self.config.left_port if bus == "left" else self.config.right_port
+            port = self.config.LEFT_PORT if bus == "left" else self.config.RIGHT_PORT
             for motor_id in motor_ids:
                 key = f"{bus}_{motor_id}"
                 health = await self._ping_servo(port, motor_id, bus)
@@ -539,40 +510,18 @@ class MotionCoordinator:
         return results
 
     async def _ping_servo(self, port: str, motor_id: int, bus: str) -> ServoHealth:
-        """Ping a single servo and get its status."""
-        health = ServoHealth(motor_id=motor_id, bus=bus, last_check=time.time())
+        """Ping a single servo and get its status.
 
-        cmd = [
-            "solo", "robo",
-            "--port", port,
-            "--ids", str(motor_id),
-            "--ping"
-        ]
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=2.0)
-
-            health.responding = process.returncode == 0
-            if not health.responding:
-                print(f"[Servo] {bus} motor {motor_id} not responding")
-
-        except asyncio.TimeoutError:
-            health.responding = False
-            print(f"[Servo] {bus} motor {motor_id} timeout")
-        except Exception as e:
-            health.responding = False
-            print(f"[Servo] {bus} motor {motor_id} error: {e}")
-
+        Delegates to config.motors.MotorInterface (single source of truth).
+        """
+        health = await self.motors.check_health(port, motor_id)
+        if not health.responding:
+            print(f"[Servo] {bus} motor {motor_id} not responding")
         return health
 
     async def recover_servo(self, bus: str, motor_id: int, action: str = "reboot") -> bool:
         """Attempt to recover a non-responding servo."""
-        port = self.config.left_port if bus == "left" else self.config.right_port
+        port = self.config.LEFT_PORT if bus == "left" else self.config.RIGHT_PORT
 
         actions = {
             "ping": ["--ping"],
@@ -685,13 +634,13 @@ class MotionCoordinator:
     async def _move_gantry(self, pan: float, tilt: float, speed: float):
         """Move the gantry to a position."""
         # Clamp to limits
-        pan = max(self.config.pan_min, min(self.config.pan_max, pan))
-        tilt = max(self.config.tilt_min, min(self.config.tilt_max, tilt))
+        pan = max(self.config.PAN_LIMITS[0], min(self.config.PAN_LIMITS[1], pan))
+        tilt = max(self.config.TILT_LIMITS[0], min(self.config.TILT_LIMITS[1], tilt))
 
         cmd = [
             "solo", "robo",
-            "--port", self.config.right_port,
-            "--ids", ",".join(map(str, self.config.gantry_ids)),
+            "--port", self.config.RIGHT_PORT,
+            "--ids", ",".join(map(str, self.config.GANTRY_IDS)),
             "--positions", f"{pan},{tilt}",
             "--speed", str(speed)
         ]
@@ -727,8 +676,8 @@ class MotionCoordinator:
 
         cmd = [
             "solo", "robo",
-            "--port", self.config.left_port,
-            "--ids", ",".join(map(str, self.config.wheel_ids)),
+            "--port", self.config.LEFT_PORT,
+            "--ids", ",".join(map(str, self.config.WHEEL_IDS)),
             "--velocities", ",".join(map(str, velocities)),
             "--duration", str(duration)
         ]
@@ -785,10 +734,10 @@ class MotionCoordinator:
 
     async def _move_arm(self, arm: str, positions: List[float], speed: float = None):
         """Move an arm to specified joint positions."""
-        speed = speed or self.config.gesture_speed
+        speed = speed or self.config.GESTURE_SPEED
 
-        port = self.config.left_port if arm == "left" else self.config.right_port
-        ids = self.config.left_arm_ids if arm == "left" else self.config.right_arm_ids
+        port = self.config.LEFT_PORT if arm == "left" else self.config.RIGHT_PORT
+        ids = self.config.LEFT_ARM_IDS if arm == "left" else self.config.RIGHT_ARM_IDS
 
         cmd = [
             "solo", "robo",
@@ -893,11 +842,11 @@ class MotionCoordinator:
         # Left bus
         cmd_left = [
             "solo", "robo",
-            "--port", self.config.left_port,
+            "--port", self.config.LEFT_PORT,
             "--ids", ",".join(map(str,
-                self.config.left_arm_ids +
-                self.config.wheel_ids +
-                (self.config.lift_id,)
+                self.config.LEFT_ARM_IDS +
+                self.config.WHEEL_IDS +
+                (self.config.LIFT_ID,)
             )),
             "--torque", "off"
         ]
@@ -905,10 +854,10 @@ class MotionCoordinator:
         # Right bus
         cmd_right = [
             "solo", "robo",
-            "--port", self.config.right_port,
+            "--port", self.config.RIGHT_PORT,
             "--ids", ",".join(map(str,
-                self.config.right_arm_ids +
-                self.config.gantry_ids
+                self.config.RIGHT_ARM_IDS +
+                self.config.GANTRY_IDS
             )),
             "--torque", "off"
         ]

@@ -28,6 +28,9 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Callable, Any
 from enum import Enum
 
+from config.hardware import HardwareConfig, get_hardware_config
+from config.motors import MotorInterface, MotorDiscovery, get_motor_interface
+
 
 class CalibrationState(Enum):
     """States in the calibration flow."""
@@ -40,17 +43,7 @@ class CalibrationState(Enum):
     COMPLETE = "complete"
 
 
-@dataclass
-class MotorDiscovery:
-    """What we know about a discovered motor."""
-    bus: str                      # "ACM0" or "ACM1"
-    motor_id: int
-    responds: bool = False        # Did it respond to ping?
-    identified_as: Optional[str] = None  # "left_arm_1", "wheel_front", etc.
-    tested: bool = False
-    movement_detected: bool = False
-    human_confirmed: bool = False
-    notes: str = ""
+# MotorDiscovery imported from config.motors (single source of truth)
 
 
 @dataclass
@@ -81,6 +74,10 @@ class VerbalCalibration:
     def __init__(self):
         self.session = CalibrationSession()
 
+        # Shared config and motor interface (single source of truth)
+        self.config = get_hardware_config()
+        self.motors = get_motor_interface()
+
         # Callback to send message to johnny5.py for speaking
         self._speak_callback: Optional[Callable[[str], None]] = None
 
@@ -94,18 +91,18 @@ class VerbalCalibration:
         self._pending_message: Optional[str] = None
         self._awaiting_response: bool = False
 
-        # Johnny Five expected layout (from CLAUDE.md)
+        # Expected layout derived from shared config
         # ACM0: Left arm (1-6), lift (10), wheels (7-9)
         # ACM1: Right arm (1-6), gantry (7-8)
         self.expected_layout = {
             "ACM0": {
-                "left_arm": [1, 2, 3, 4, 5, 6],
-                "base": [7, 8, 9],      # Mecanum wheels
-                "lift": [10],
+                "left_arm": list(self.config.LEFT_ARM_IDS),
+                "base": list(self.config.WHEEL_IDS),
+                "lift": [self.config.LIFT_ID],
             },
             "ACM1": {
-                "right_arm": [1, 2, 3, 4, 5, 6],
-                "gantry": [7, 8],       # Pan, tilt
+                "right_arm": list(self.config.RIGHT_ARM_IDS),
+                "gantry": list(self.config.GANTRY_IDS),
             }
         }
 
@@ -207,13 +204,16 @@ class VerbalCalibration:
         return msg
 
     async def _scan_all_motors(self) -> Dict[str, MotorDiscovery]:
-        """Scan both buses for motors."""
+        """Scan both buses for motors.
+
+        Delegates to config.motors.MotorInterface (single source of truth).
+        """
         results = {}
 
         # Scan ACM0 (IDs 1-10)
         for motor_id in range(1, 11):
             key = f"ACM0:{motor_id}"
-            responds = await self._ping_motor("/dev/ttyACM0", motor_id)
+            responds = await self.motors.ping(self.config.LEFT_PORT, motor_id)
             results[key] = MotorDiscovery(
                 bus="ACM0",
                 motor_id=motor_id,
@@ -223,7 +223,7 @@ class VerbalCalibration:
         # Scan ACM1 (IDs 1-8)
         for motor_id in range(1, 9):
             key = f"ACM1:{motor_id}"
-            responds = await self._ping_motor("/dev/ttyACM1", motor_id)
+            responds = await self.motors.ping(self.config.RIGHT_PORT, motor_id)
             results[key] = MotorDiscovery(
                 bus="ACM1",
                 motor_id=motor_id,
@@ -233,20 +233,11 @@ class VerbalCalibration:
         return results
 
     async def _ping_motor(self, port: str, motor_id: int) -> bool:
-        """Ping a motor to see if it responds."""
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "solo", "robo",
-                "--port", port,
-                "--ids", str(motor_id),
-                "--ping",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=2.0)
-            return process.returncode == 0
-        except:
-            return False
+        """Ping a motor to see if it responds.
+
+        Delegates to config.motors.MotorInterface (single source of truth).
+        """
+        return await self.motors.ping(port, motor_id)
 
     def _find_missing_motors(self, scan_results: Dict[str, MotorDiscovery]) -> List[str]:
         """Find motors that should exist but don't respond."""
@@ -397,23 +388,12 @@ class VerbalCalibration:
         return self._generate_summary()
 
     async def _wiggle_motor(self, bus: str, motor_id: int) -> bool:
-        """Move a motor slightly and back to test it."""
-        port = "/dev/ttyACM0" if bus == "ACM0" else "/dev/ttyACM1"
+        """Move a motor slightly and back to test it.
 
-        try:
-            # Read current position, move +10°, move back
-            process = await asyncio.create_subprocess_exec(
-                "solo", "robo",
-                "--port", port,
-                "--ids", str(motor_id),
-                "--wiggle",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await asyncio.wait_for(process.communicate(), timeout=5.0)
-            return process.returncode == 0
-        except:
-            return False
+        Delegates to config.motors.MotorInterface (single source of truth).
+        """
+        port = self.config.LEFT_PORT if bus == "ACM0" else self.config.RIGHT_PORT
+        return await self.motors.wiggle(port, motor_id)
 
     async def _detect_motion_with_camera(self) -> bool:
         """Use camera to detect if something moved."""

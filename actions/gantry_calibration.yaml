@@ -1,27 +1,10 @@
 # actions/gantry_calibration.yaml
-# Hot-loadable calibration for Feetech pan/tilt servos on OAK-D Pro gantry
+# Hot-loadable action for calibrating the camera gantry (pan/tilt)
+# Hardware config (ports, IDs, limits) comes from config.hardware.HardwareConfig
 name: gantry_calibration
 version: "1.0"
-description: "Calibrate the 2-DOF camera gantry (Feetech pan/tilt servos)"
+description: "Calibrate the 2-DOF camera gantry (Feetech pan/tilt)"
 category: calibration
-
-# Hardware configuration
-hardware:
-  bus: ACM1
-  port: /dev/ttyACM1
-  servos:
-    pan:
-      id: 7
-      type: feetech
-      range: [-90, 90]      # Degrees from center
-      default: 0            # Center position
-      description: "Horizontal camera rotation"
-    tilt:
-      id: 8
-      type: feetech
-      range: [-45, 45]      # Degrees from level
-      default: 0            # Level position
-      description: "Vertical camera angle"
 
 parameters:
   mode:
@@ -36,15 +19,6 @@ parameters:
     default: 0.3
     description: "Movement speed during calibration"
 
-# Uses solo-cli (solo-tech fork) for Feetech servo control
-cli:
-  tool: solo
-  commands:
-    ping: "solo robo --port /dev/ttyACM1 --ids {{id}} --ping"
-    move: "solo robo --port /dev/ttyACM1 --ids {{id}} --position {{position}}"
-    wiggle: "solo robo --port /dev/ttyACM1 --ids {{id}} --wiggle"
-    read: "solo robo --port /dev/ttyACM1 --ids {{id}} --read"
-
 # Calibration sequence - verbal command driven
 execution:
   type: calibration_sequence
@@ -52,7 +26,6 @@ execution:
   cli_tool: solo
 
   steps:
-    # Step 1: Center both servos
     - name: center_gantry
       action: move_to_position
       params:
@@ -62,7 +35,6 @@ execution:
       speak: "Centering the camera gantry"
       await_confirmation: false
 
-    # Step 2: Test pan range
     - name: test_pan_left
       condition: "{{mode}} in ['full', 'pan_only']"
       action: move_to_position
@@ -93,7 +65,6 @@ execution:
       speak: "Centering pan"
       await_confirmation: false
 
-    # Step 3: Test tilt range
     - name: test_tilt_up
       condition: "{{mode}} in ['full', 'tilt_only']"
       action: move_to_position
@@ -124,14 +95,7 @@ execution:
       speak: "Centering tilt. Gantry calibration complete."
       await_confirmation: false
 
-# Dependencies
-requires:
-  subsystems: [gantry]
-  capabilities:
-    - servo_control
-    - serial_port_ACM1
-
-# Verbal triggers - human says these to start calibration
+# Verbal triggers
 triggers:
   - pattern: "calibrate.*camera|calibrate.*gantry|test.*pan.*tilt"
     action: gantry_calibration
@@ -142,12 +106,3 @@ triggers:
     action: gantry_calibration
     params:
       mode: center
-
-# Store calibration result
-knowledge:
-  on_complete:
-    - store: "Calibrated camera gantry - pan and tilt servos confirmed working"
-      salience: 40
-      context:
-        type: hardware_calibration
-        subsystem: gantry
