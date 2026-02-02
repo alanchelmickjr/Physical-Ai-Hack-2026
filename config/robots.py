@@ -19,6 +19,7 @@ class RobotType(Enum):
     """Supported robot platforms."""
     JOHNNY_FIVE = "johnny_five"
     BOOSTER_K1 = "booster_k1"
+    UNITREE_G1 = "unitree_g1"
 
 
 class CameraType(Enum):
@@ -28,12 +29,15 @@ class CameraType(Enum):
     ZED = "zed"
     ZED_X = "zed_x"
     ZED_2 = "zed_2"
+    REALSENSE_D435 = "realsense_d435"
+    REALSENSE_D455 = "realsense_d455"
 
 
 class MicrophoneType(Enum):
     """Supported microphone array types."""
     RESPEAKER_4MIC = "respeaker_4mic"
     CIRCULAR_6MIC = "circular_6mic"
+    UNITREE_4MIC = "unitree_4mic"
 
 
 class ComputeType(Enum):
@@ -226,6 +230,59 @@ BOOSTER_K1_CONFIG = RobotConfig(
 )
 
 
+UNITREE_G1_CONFIG = RobotConfig(
+    name="Unitree G1",
+    type=RobotType.UNITREE_G1,
+
+    # Compute - Jetson Orin with up to 100 TOPS (EDU version)
+    compute=ComputeType.JETSON_ORIN_NX,
+    compute_tops=100,
+
+    # Camera - Intel RealSense D435
+    camera=CameraConfig(
+        type=CameraType.REALSENSE_D435,
+        width=1280,
+        height=720,
+        fps=30,
+        hfov=87.0,  # RealSense D435 wide FOV
+        depth_min_mm=105,
+        depth_max_mm=10000,
+        interface="usb",
+    ),
+
+    # Microphone - Built-in 4-Mic Array
+    microphone=MicrophoneConfig(
+        type=MicrophoneType.UNITREE_4MIC,
+        num_mics=4,
+        sample_rate=16000,
+        doa_resolution=10.0,
+        vendor_id=0x0000,  # Via unitree_sdk2
+        product_id=0x0000,
+        array_radius_mm=40.0,  # Estimated
+        mic_positions=[
+            (0, 40.0),    # Front
+            (40.0, 0),    # Right
+            (0, -40.0),   # Back
+            (-40.0, 0),   # Left
+        ],
+    ),
+
+    # Mobility - Bipedal humanoid (23-43 DOF depending on config)
+    mobile_base=True,
+    base_type="bipedal",
+
+    # Manipulation - Dex3 hands on EDU version
+    arms=2,
+    arm_dof=7,  # Per arm
+    grippers=True,
+
+    # Physical
+    height_mm=1270,  # 127cm
+    weight_kg=35.0,
+    battery_minutes=120,
+)
+
+
 # =============================================================================
 # Registry
 # =============================================================================
@@ -233,6 +290,7 @@ BOOSTER_K1_CONFIG = RobotConfig(
 _ROBOT_CONFIGS: Dict[RobotType, RobotConfig] = {
     RobotType.JOHNNY_FIVE: JOHNNY_FIVE_CONFIG,
     RobotType.BOOSTER_K1: BOOSTER_K1_CONFIG,
+    RobotType.UNITREE_G1: UNITREE_G1_CONFIG,
 }
 
 _current_robot: Optional[RobotConfig] = None

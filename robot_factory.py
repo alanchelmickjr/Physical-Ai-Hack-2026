@@ -168,6 +168,18 @@ def _detect_robot_type() -> RobotType:
     Returns:
         Detected RobotType (defaults to JOHNNY_FIVE)
     """
+    # Try to detect RealSense camera (indicates Unitree G1)
+    try:
+        import pyrealsense2 as rs
+        ctx = rs.context()
+        devices = ctx.query_devices()
+        if len(devices) > 0:
+            dev_name = devices[0].get_info(rs.camera_info.name)
+            print(f"[RobotFactory] Detected RealSense {dev_name} -> Unitree G1")
+            return RobotType.UNITREE_G1
+    except:
+        pass
+
     # Try to detect ZED camera (indicates Booster K1)
     try:
         import pyzed.sl as sl
@@ -204,6 +216,10 @@ def _create_adapter(robot_type: RobotType) -> RobotAdapter:
     elif robot_type == RobotType.BOOSTER_K1:
         from adapters.booster_k1 import BoosterK1Adapter
         return BoosterK1Adapter()
+
+    elif robot_type == RobotType.UNITREE_G1:
+        from adapters.unitree_g1 import UnitreeG1Adapter
+        return UnitreeG1Adapter()
 
     else:
         raise ValueError(f"Unknown robot type: {robot_type}")

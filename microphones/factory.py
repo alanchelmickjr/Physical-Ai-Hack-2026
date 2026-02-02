@@ -64,6 +64,12 @@ def _ensure_registered():
     except ImportError as e:
         print(f"[MicFactory] Circular6Mic not available: {e}")
 
+    try:
+        from .unitree import UnitreeMic
+        register_microphone(MicrophoneType.UNITREE_4MIC, UnitreeMic)
+    except ImportError as e:
+        print(f"[MicFactory] UnitreeMic not available: {e}")
+
 
 def list_available_microphones() -> list:
     """List all registered microphone types.
