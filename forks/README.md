@@ -1,17 +1,17 @@
 # Forked Repositories
 
-This directory contains forked/cloned repositories for Chloe's motor control.
+This directory contains forked/cloned repositories for Johnny Five motor control.
 
 ## Contents
 
-### chloe-lerobot
+### johnny5-lerobot
 Forked from: https://github.com/liyiteng/lerobot_alohamini
 
 LeRobot variant adapted for AlohaMini-style robots. We've added:
-- `src/lerobot/robots/chloe/` - Chloe-specific robot configuration
+- `src/lerobot/robots/johnny5/` - Johnny Five robot configuration
 - Custom motor IDs matching our hardware layout
 
-### chloe-solo
+### johnny5-solo
 Cloned from: https://github.com/TheRobotStudio/SO-ARM100
 
 SO-ARM100 / Solo-CLI for controlling Dynamixel-based arms.
@@ -25,13 +25,13 @@ Clone them manually:
 cd forks
 
 # LeRobot with AlohaMini support
-git clone https://github.com/liyiteng/lerobot_alohamini.git chloe-lerobot
+git clone https://github.com/liyiteng/lerobot_alohamini.git johnny5-lerobot
 
 # SO-ARM100 / Solo-CLI
-git clone https://github.com/TheRobotStudio/SO-ARM100.git chloe-solo
+git clone https://github.com/TheRobotStudio/SO-ARM100.git johnny5-solo
 ```
 
-## Chloe Hardware Layout
+## Johnny Five Hardware Layout
 
 ```
 /dev/ttyACM0 (Left Bus):
@@ -50,13 +50,13 @@ git clone https://github.com/TheRobotStudio/SO-ARM100.git chloe-solo
 pip install solo-cli --break-system-packages
 
 # Or from local clone:
-cd chloe-solo
+cd johnny5-solo
 pip install -e . --break-system-packages
 ```
 
 ## Installing LeRobot
 
 ```bash
-cd chloe-lerobot
+cd johnny5-lerobot
 pip install -e ".[dev]" --break-system-packages
 ```

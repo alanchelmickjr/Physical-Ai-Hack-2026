@@ -223,7 +223,7 @@ Physical-Ai-Hack-2026/
 │   └── ...
 │
 └── forks/                       # Modified dependencies
-    └── chloe-lerobot/           # LeRobot fork with Chloe config
+    └── johnny5-lerobot/         # LeRobot fork with Johnny Five config
 ```
 
 ---
