@@ -19,6 +19,14 @@ from hume import MicrophoneInterface, Stream
 from hume.client import AsyncHumeClient
 from hume.empathic_voice.types import SubscribeEvent, UserInput, SessionSettings
 
+# LED feedback for ReSpeaker
+try:
+    from led_controller import get_led
+    LED_AVAILABLE = True
+except ImportError:
+    LED_AVAILABLE = False
+    print("WARNING: led_controller not available, LED feedback disabled")
+
 # Unbuffered output for real-time logging
 sys.stdout = os.fdopen(sys.stdout.fileno(), "w", buffering=1)
 
@@ -114,6 +122,9 @@ async def on_message(message: SubscribeEvent, stream: Stream) -> None:
         log(f"{role}: {content}", request_start_time if request_start_time else None)
         evi_last_activity = time.time()
         in_conversation = True
+        # LED: thinking (purple) - processing user input
+        if LED_AVAILABLE:
+            get_led().thinking()
 
     elif message.type == "assistant_message":
         role = message.message.role if hasattr(message.message, 'role') else "assistant"
@@ -127,6 +138,9 @@ async def on_message(message: SubscribeEvent, stream: Stream) -> None:
         chunk_size = len(chunk_bytes)
 
         if audio_chunk_count == 0:
+            # LED: speaking (green) - Johnny is talking
+            if LED_AVAILABLE:
+                get_led().speaking()
             # MUTE MIC when audio starts playing (prevent feedback loop)
             audio_playing = True
             if _socket:
@@ -167,9 +181,15 @@ async def on_message(message: SubscribeEvent, stream: Stream) -> None:
                 log("MIC UNMUTED (audio done)")
             except Exception:
                 pass  # unmute() may not exist in all SDK versions
+        # LED: back to listening (DOA mode)
+        if LED_AVAILABLE:
+            get_led().listening()
 
     elif message.type == "error":
         log(f"ERROR: {message.code} - {message.message}")
+        # LED: error (red)
+        if LED_AVAILABLE:
+            get_led().error()
 
     else:
         log(f"<{message.type}>")
@@ -261,6 +281,10 @@ async def main() -> None:
         _socket = socket  # Store for mute/unmute in on_message
         connect_ms = (time.time() - connect_start) * 1000
         log(f"Connected! Number 5 is alive! (connect took {connect_ms:.0f}ms)")
+
+        # Set LED to listening mode (blue DOA)
+        if LED_AVAILABLE:
+            get_led().listening()
 
         # Send Johnny 5 persona system prompt
         try:
