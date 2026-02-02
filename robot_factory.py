@@ -39,6 +39,7 @@ class Robot:
     adapter: RobotAdapter
     camera: Optional[SpatialCamera] = None
     microphone: Optional[MicrophoneArray] = None
+    _head_tracker: Optional[object] = None
 
     @property
     def name(self) -> str:
@@ -74,6 +75,40 @@ class Robot:
             self.camera.stop()
         if self.microphone:
             self.microphone.stop()
+
+    def start_head_tracking(self, poll_rate_hz: int = 30) -> bool:
+        """Start autonomic head tracking - robot looks at who's talking.
+
+        This runs independently of any VLA or high-level control.
+        The robot will automatically turn its head toward sounds.
+
+        Args:
+            poll_rate_hz: DOA polling rate
+
+        Returns:
+            True if started successfully
+        """
+        try:
+            from head_tracker import create_head_tracker_for_robot
+            self._head_tracker = create_head_tracker_for_robot(self)
+            self._head_tracker.start(poll_rate_hz=poll_rate_hz)
+            print(f"[{self.name}] Head tracking started (autonomic)")
+            return True
+        except Exception as e:
+            print(f"[{self.name}] Head tracking failed: {e}")
+            return False
+
+    def stop_head_tracking(self):
+        """Stop autonomic head tracking."""
+        if self._head_tracker:
+            self._head_tracker.stop()
+            self._head_tracker = None
+            print(f"[{self.name}] Head tracking stopped")
+
+    @property
+    def head_tracker(self):
+        """Get the head tracker instance (if running)."""
+        return self._head_tracker
 
 
 def create_robot(
