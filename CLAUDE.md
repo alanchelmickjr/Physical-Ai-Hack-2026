@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## DIRECTIVE: Do Exactly What You Are Told
+
+- Only do what is explicitly requested. Nothing more.
+- No presumptions. No assumptions. No additional work.
+- If unsure which file to edit, ASK. Do not guess.
+- Complete the task directly. Do not research unless asked.
+- "readme" means README.md. "claude md" means CLAUDE.md. Listen.
+
 ## Project Overview
 
 **Johnny Five** - A **social robot** model whose primary purpose is to **connect with and remember people** for social interaction.
