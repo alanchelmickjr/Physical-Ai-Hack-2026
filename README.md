@@ -1,8 +1,9 @@
-# Physical AI Hack 2026: Johnny Five
+# Frontier Tower Social Droid Project
 
-> **"Number 5 is alive!"** — A social robot that connects with and remembers people.
+> **"Number 5 is alive!"** — A social robot framework that connects with and remembers people.
 
-![Hackathon](https://img.shields.io/badge/Physical%20AI-Hack%202026-blue)
+![Frontier Tower](https://img.shields.io/badge/Frontier_Tower-4th_Floor_Robotics-purple)
+![Meetup](https://img.shields.io/badge/Meetup-Tuesdays_6PM-blue)
 ![Status](https://img.shields.io/badge/Status-Functional-green)
 ![Portable](https://img.shields.io/badge/Multi--Robot-Portable-orange)
 [![Hume EVI](https://img.shields.io/badge/Voice-Hume_EVI-FF6B6B)](https://hume.ai)
@@ -21,6 +22,15 @@
 | [whoami](https://github.com/alanchelmickjr/whoami) | Secure facial recognition for robots |
 | [SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100) | Solo-CLI for Feetech servo control |
 | [lerobot](https://github.com/huggingface/lerobot) | HuggingFace robotics ML toolkit |
+
+### Weekly Meetup
+
+**Frontier Tower Droid Builder Club**
+- **When:** Every week, 6 PM
+- **Where:** Frontier Tower, 4th Floor Robotics
+- **What:** Build social droids, hack on robots, share cool stuff
+
+Everyone welcome — bring your robots!
 
 ---
 
