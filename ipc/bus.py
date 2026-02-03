@@ -36,11 +36,21 @@ class Topic(Enum):
     VISION_GREETING = "vision.greeting"          # Face recognition greeting
     VISION_ENROLL_REQUEST = "vision.enroll.request"  # Request face enrollment
     VISION_ENROLL_COMPLETE = "vision.enroll.complete"
+    VISION_REQUEST_FACES = "vision.request.faces"  # Request current faces
+    VISION_SNAPSHOT = "vision.snapshot"          # Request camera snapshot for Hume
 
     # Audio events
     AUDIO_DOA = "audio.doa"                      # Direction of arrival
     AUDIO_SPEAKER_ID = "audio.speaker.id"        # Speaker identified
+    AUDIO_SPEAKER_IDENTIFIED = "audio.speaker.identified"  # Speaker name confirmed
     AUDIO_VAD = "audio.vad"                      # Voice activity detected
+    AUDIO_REQUEST_DOA = "audio.request.doa"      # Request current DOA
+    AUDIO_ENROLL_VOICE = "audio.enroll.voice"    # Start voice enrollment
+
+    # Identity management events
+    IDENTITY_UPDATED = "identity.updated"        # Person identity updated
+    IDENTITY_FORGET = "identity.forget"          # Request to forget person
+    IDENTITY_MERGE = "identity.merge"            # Merge two identities
 
     # Sensor events
     SENSOR_SMELL = "sensor.smell"

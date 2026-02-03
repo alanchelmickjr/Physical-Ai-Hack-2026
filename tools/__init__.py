@@ -7,8 +7,9 @@
 # - ToolExecutionEngine: Processes Hume EVI tool calls
 # - ToolRegistry: Defines available tools
 # - RealTimeCommandQueue: Bridges cloud latency to real-time robot
+# - RecognitionHandler: Bridges recognition queries via IPC
 
-from .engine import ToolExecutionEngine
+from .engine import ToolExecutionEngine, ToolCall, ToolResult, ActionGraph
 from .registry import ToolRegistry, tool
 from .realtime import (
     RealTimeCommandQueue,
@@ -17,14 +18,29 @@ from .realtime import (
     CommandPriority,
     get_command_queue,
 )
+from .recognition_handler import (
+    RecognitionHandler,
+    RecognitionConfig,
+    create_recognition_handler,
+)
 
 __all__ = [
+    # Engine
     "ToolExecutionEngine",
+    "ToolCall",
+    "ToolResult",
+    "ActionGraph",
+    # Registry
     "ToolRegistry",
     "tool",
+    # Real-time
     "RealTimeCommandQueue",
     "RealTimeExecutor",
     "TimedCommand",
     "CommandPriority",
     "get_command_queue",
+    # Recognition
+    "RecognitionHandler",
+    "RecognitionConfig",
+    "create_recognition_handler",
 ]

@@ -140,81 +140,34 @@ class ToolExecutionEngine:
         self.tool_parsers["save_config"] = self._parse_save_config
         self.tool_parsers["load_config"] = self._parse_load_config
 
+        # Recognition tools (query-only, no hardware actions)
+        self.tool_parsers["get_visible_people"] = self._parse_recognition_query
+        self.tool_parsers["identify_person"] = self._parse_recognition_query
+        self.tool_parsers["enroll_person"] = self._parse_recognition_query
+        self.tool_parsers["get_speaker_direction"] = self._parse_recognition_query
+        self.tool_parsers["identify_speaker"] = self._parse_recognition_query
+        self.tool_parsers["enroll_voice"] = self._parse_recognition_query
+        self.tool_parsers["get_known_people"] = self._parse_recognition_query
+        self.tool_parsers["forget_person"] = self._parse_recognition_query
+        self.tool_parsers["who_said_that"] = self._parse_recognition_query
+        self.tool_parsers["look_at_speaker"] = self._parse_look_at_speaker
+        self.tool_parsers["get_last_seen"] = self._parse_recognition_query
+
+        # IPC-based recognition handler (set externally)
+        self._recognition_handler = None
+
+    def set_recognition_handler(self, handler) -> None:
+        """Set handler for recognition queries.
+
+        Handler signature: async def handler(tool_name: str, args: dict) -> dict
+        """
+        self._recognition_handler = handler
+
     def register_parser(
         self, tool_name: str, parser: Callable[[Dict], ActionGraph]
     ) -> None:
         """Register a custom tool parser."""
         self.tool_parsers[tool_name] = parser
-
-    async def execute_tool(self, tool_call: ToolCall) -> ToolResult:
-        """Execute a tool call from Hume EVI.
-
-        Args:
-            tool_call: The tool call to execute
-
-        Returns:
-            ToolResult with success status and details
-        """
-        # Check for emergency stop
-        if self.robot.is_stopped:
-            return ToolResult(
-                success=False,
-                message="Robot is in emergency stop state. Reset required."
-            )
-
-        # Handle stop command specially
-        if tool_call.name == "stop":
-            await self.robot.stop()
-            return ToolResult(
-                success=True,
-                message="Emergency stop activated"
-            )
-
-        # Parse tool into action graph
-        try:
-            graph = self._parse_tool(tool_call)
-        except Exception as e:
-            return ToolResult(
-                success=False,
-                message=f"Failed to parse tool: {e}"
-            )
-
-        # Execute action waves
-        all_results = []
-        try:
-            waves = graph.get_execution_waves()
-
-            for wave in waves:
-                wave_results = await self._execute_wave(wave)
-                all_results.extend(wave_results)
-
-                # Check for failures
-                if any(r.failed for r in wave_results):
-                    failed = [r for r in wave_results if r.failed]
-                    return ToolResult(
-                        success=False,
-                        message=f"Action failed: {failed[0].message}",
-                        results=all_results
-                    )
-
-        except asyncio.CancelledError:
-            return ToolResult(
-                success=False,
-                message="Execution cancelled",
-                results=all_results
-            )
-        except Exception as e:
-            return ToolResult(
-                success=False,
-                message=f"Execution error: {e}",
-                results=all_results
-            )
-
-        return ToolResult(
-            success=True,
-            message=f"Completed {tool_call.name}",
-            results=all_results
-        )
 
     def _parse_tool(self, tool_call: ToolCall) -> ActionGraph:
         """Parse a tool call into an action graph."""
@@ -782,3 +735,209 @@ class ToolExecutionEngine:
         ))
 
         return graph
+
+    # =========================================================================
+    # Recognition Tool Parsers
+    # =========================================================================
+
+    def _parse_recognition_query(self, args: Dict) -> ActionGraph:
+        """Parse recognition query tools (no hardware actions).
+
+        These tools query the recognition system via IPC and return
+        data without triggering robot movements.
+        """
+        # Return empty graph - recognition handled specially in execute_tool
+        return ActionGraph()
+
+    def _parse_look_at_speaker(self, args: Dict) -> ActionGraph:
+        """Parse look_at_speaker tool - combines recognition + gantry movement.
+
+        First queries DOA/speaker recognition, then moves gantry to look
+        at the speaker direction.
+        """
+        graph = ActionGraph()
+
+        # The actual direction will be filled in by recognition handler
+        # during execution. For now, add a placeholder action that will
+        # be resolved at runtime based on speaker direction.
+        graph.add_action(ActionPrimitive(
+            name="look_at_speaker",
+            subsystem="gantry",
+            params={"source": "doa"},  # Will be resolved to actual angle
+            timeout=5.0
+        ))
+
+        return graph
+
+    async def execute_recognition_tool(
+        self, tool_call: ToolCall
+    ) -> ToolResult:
+        """Execute a recognition-specific tool via IPC.
+
+        Recognition tools query face/voice recognition systems and return
+        data without triggering physical robot movements.
+        """
+        if not self._recognition_handler:
+            return ToolResult(
+                success=False,
+                message="Recognition handler not configured"
+            )
+
+        try:
+            result = await self._recognition_handler(
+                tool_call.name,
+                tool_call.arguments
+            )
+            return ToolResult(
+                success=True,
+                message=f"Recognition query: {tool_call.name}",
+                data=result
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                message=f"Recognition query failed: {e}"
+            )
+
+    async def execute_tool(self, tool_call: ToolCall) -> ToolResult:
+        """Execute a tool call from Hume EVI.
+
+        Args:
+            tool_call: The tool call to execute
+
+        Returns:
+            ToolResult with success status and details
+        """
+        # Check for emergency stop
+        if self.robot.is_stopped:
+            return ToolResult(
+                success=False,
+                message="Robot is in emergency stop state. Reset required."
+            )
+
+        # Handle stop command specially
+        if tool_call.name == "stop":
+            await self.robot.stop()
+            return ToolResult(
+                success=True,
+                message="Emergency stop activated"
+            )
+
+        # Handle recognition queries specially (no hardware actions)
+        recognition_tools = {
+            "get_visible_people", "identify_person", "enroll_person",
+            "get_speaker_direction", "identify_speaker", "enroll_voice",
+            "get_known_people", "forget_person", "who_said_that",
+            "get_last_seen"
+        }
+
+        if tool_call.name in recognition_tools:
+            return await self.execute_recognition_tool(tool_call)
+
+        # Handle look_at_speaker specially (recognition + hardware)
+        if tool_call.name == "look_at_speaker":
+            return await self._execute_look_at_speaker(tool_call)
+
+        # Parse tool into action graph
+        try:
+            graph = self._parse_tool(tool_call)
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                message=f"Failed to parse tool: {e}"
+            )
+
+        # Execute action waves
+        all_results = []
+        try:
+            waves = graph.get_execution_waves()
+
+            for wave in waves:
+                wave_results = await self._execute_wave(wave)
+                all_results.extend(wave_results)
+
+                # Check for failures
+                if any(r.failed for r in wave_results):
+                    failed = [r for r in wave_results if r.failed]
+                    return ToolResult(
+                        success=False,
+                        message=f"Action failed: {failed[0].message}",
+                        results=all_results
+                    )
+
+        except asyncio.CancelledError:
+            return ToolResult(
+                success=False,
+                message="Execution cancelled",
+                results=all_results
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                message=f"Execution error: {e}",
+                results=all_results
+            )
+
+        return ToolResult(
+            success=True,
+            message=f"Completed {tool_call.name}",
+            results=all_results
+        )
+
+    async def _execute_look_at_speaker(self, tool_call: ToolCall) -> ToolResult:
+        """Execute look_at_speaker: query recognition then move gantry."""
+        # First get speaker direction via recognition
+        if not self._recognition_handler:
+            return ToolResult(
+                success=False,
+                message="Recognition handler not configured"
+            )
+
+        try:
+            # Query speaker direction
+            direction_result = await self._recognition_handler(
+                "get_speaker_direction",
+                tool_call.arguments
+            )
+
+            if not direction_result or "direction" not in direction_result:
+                return ToolResult(
+                    success=False,
+                    message="Could not determine speaker direction"
+                )
+
+            # Now move gantry to look at speaker
+            direction = direction_result["direction"]
+            confidence = direction_result.get("confidence", 0.0)
+
+            # Only move if we have reasonable confidence
+            if confidence < 0.3:
+                return ToolResult(
+                    success=True,
+                    message=f"Speaker direction uncertain (confidence: {confidence:.2f})",
+                    data=direction_result
+                )
+
+            # Execute gantry movement
+            action = ActionPrimitive(
+                name="look_at",
+                subsystem="gantry",
+                params={"angle": direction},
+                timeout=5.0
+            )
+
+            from adapters.base import Subsystem
+            result = await self.robot.execute(Subsystem.GANTRY, action)
+
+            return ToolResult(
+                success=result.success,
+                message=f"Looking at speaker at {direction}°",
+                results=[result],
+                data=direction_result
+            )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                message=f"Look at speaker failed: {e}"
+            )

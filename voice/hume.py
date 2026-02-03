@@ -2,15 +2,24 @@
 
 This is the "Johnny Five" voice - cloud-based, expressive, emotion-aware.
 Falls back to local if credits exhausted or connection fails.
+
+Supports:
+- Hot-loadable config IDs (personality + tools)
+- Tool call handling with local execution engine
+- Session settings updates
 """
 
 import asyncio
 import base64
+import json
+import logging
 import os
 import time
-from typing import AsyncIterator, Dict, List, Optional
+from typing import AsyncIterator, Callable, Dict, List, Optional
 
 from .base import TTSBackend, STTBackend, LLMBackend
+
+logger = logging.getLogger(__name__)
 
 # Lazy imports - only load Hume SDK when needed
 _hume_available = None
@@ -36,6 +45,11 @@ class HumeVoice(TTSBackend, STTBackend, LLMBackend):
     Hume EVI is a unified voice system, not separate components.
     This class presents the same interface as separate backends
     but internally uses Hume's websocket connection.
+
+    Features:
+    - Hot-loadable config IDs (personality + tools bundled)
+    - Tool call handling - receives tool_call, executes locally, sends tool_response
+    - Session settings updates for system prompt changes
     """
 
     def __init__(
@@ -43,6 +57,7 @@ class HumeVoice(TTSBackend, STTBackend, LLMBackend):
         api_key: Optional[str] = None,
         config_id: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        tool_handler: Optional[Callable] = None,
     ):
         if not _check_hume():
             raise RuntimeError("Hume SDK not installed. Install with: pip install hume")
@@ -50,6 +65,10 @@ class HumeVoice(TTSBackend, STTBackend, LLMBackend):
         self.api_key = api_key or os.getenv("HUME_API_KEY")
         self.config_id = config_id or os.getenv("HUME_CONFIG_ID")
         self.system_prompt = system_prompt or ""
+
+        # Tool handler callback - called when Hume sends a tool_call
+        # Signature: async def handler(name: str, args: dict, tool_call_id: str) -> dict
+        self._tool_handler = tool_handler
 
         if not self.api_key:
             raise ValueError("HUME_API_KEY required")
@@ -63,6 +82,7 @@ class HumeVoice(TTSBackend, STTBackend, LLMBackend):
         self._transcript_queue: asyncio.Queue = asyncio.Queue()
         self._response_queue: asyncio.Queue = asyncio.Queue()
         self._audio_queue: asyncio.Queue = asyncio.Queue()
+        self._tool_call_queue: asyncio.Queue = asyncio.Queue()
         self._message_task: Optional[asyncio.Task] = None
 
     @property
@@ -117,35 +137,117 @@ class HumeVoice(TTSBackend, STTBackend, LLMBackend):
         self._connected = False
 
     async def _handle_messages(self) -> None:
-        """Handle incoming Hume messages."""
-        from hume.empathic_voice.types import SubscribeEvent
-
+        """Handle incoming Hume messages including tool calls."""
         try:
             async for message in self._socket:
-                if message.type == "user_message":
+                msg_type = getattr(message, 'type', None)
+
+                if msg_type == "user_message":
                     # Transcription received
                     if hasattr(message, 'message') and hasattr(message.message, 'content'):
                         await self._transcript_queue.put(message.message.content)
 
-                elif message.type == "assistant_message":
+                elif msg_type == "assistant_message":
                     # LLM response
                     if hasattr(message, 'message') and hasattr(message.message, 'content'):
                         await self._response_queue.put(message.message.content)
 
-                elif message.type == "audio_output":
+                elif msg_type == "audio_output":
                     # TTS audio chunk
                     self._speaking = True
                     if hasattr(message, 'data'):
                         audio_bytes = base64.b64decode(message.data)
                         await self._audio_queue.put(audio_bytes)
 
-                elif message.type == "assistant_end":
+                elif msg_type == "assistant_end":
                     # Done speaking
                     self._speaking = False
                     await self._audio_queue.put(None)  # Signal end
 
+                elif msg_type == "tool_call":
+                    # Hume is requesting tool execution
+                    await self._handle_tool_call(message)
+
+                elif msg_type == "error":
+                    error_msg = getattr(message, 'message', str(message))
+                    logger.error(f"Hume error: {error_msg}")
+
         except asyncio.CancelledError:
             pass
+        except Exception as e:
+            logger.error(f"Message handler error: {e}")
+
+    async def _handle_tool_call(self, message) -> None:
+        """Handle a tool_call message from Hume."""
+        tool_name = getattr(message, 'name', None)
+        tool_call_id = getattr(message, 'tool_call_id', None)
+        parameters = getattr(message, 'parameters', '{}')
+
+        if not tool_name or not tool_call_id:
+            logger.error(f"Invalid tool_call message: {message}")
+            return
+
+        # Parse parameters
+        try:
+            args = json.loads(parameters) if isinstance(parameters, str) else parameters
+        except json.JSONDecodeError:
+            args = {}
+
+        logger.info(f"Tool call: {tool_name}({args}) id={tool_call_id}")
+
+        # Execute via handler if registered
+        if self._tool_handler:
+            try:
+                result = await self._tool_handler(tool_name, args, tool_call_id)
+
+                # Send tool response back to Hume
+                await self._socket.send_tool_response(
+                    tool_call_id=tool_call_id,
+                    content=json.dumps(result) if isinstance(result, dict) else str(result)
+                )
+                logger.info(f"Tool result: {result}")
+
+            except Exception as e:
+                logger.error(f"Tool execution error: {e}")
+                # Send error response
+                await self._socket.send_tool_error(
+                    tool_call_id=tool_call_id,
+                    error=str(e),
+                    fallback_content=f"Tool {tool_name} failed: {e}"
+                )
+        else:
+            # No handler registered - send error
+            logger.warning(f"No tool handler for: {tool_name}")
+            await self._socket.send_tool_error(
+                tool_call_id=tool_call_id,
+                error="No tool handler registered",
+                fallback_content=f"I don't know how to {tool_name}"
+            )
+
+    def set_tool_handler(self, handler: Callable) -> None:
+        """Set the tool execution handler.
+
+        Handler signature: async def handler(name: str, args: dict, tool_call_id: str) -> dict
+        """
+        self._tool_handler = handler
+
+    async def switch_config(self, config_id: str) -> None:
+        """Hot-switch to a different Hume config ID.
+
+        This allows changing personality + tools at runtime.
+        Requires reconnecting to Hume with the new config.
+        """
+        if config_id == self.config_id:
+            return
+
+        logger.info(f"Switching Hume config: {self.config_id} -> {config_id}")
+
+        # Disconnect current session
+        await self.disconnect()
+
+        # Update config and reconnect
+        self.config_id = config_id
+        await self.connect()
 
     # TTSBackend implementation
 
