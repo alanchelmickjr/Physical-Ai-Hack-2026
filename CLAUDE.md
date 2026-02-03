@@ -119,13 +119,40 @@ Video Input → YOLO Detection → DeepFace (WhoAmI) → 512-d embedding
 
 ### Key Modules
 
-| File | Purpose |
-|------|---------|
-| `src/speaker_id.py` | Voice identification (WeSpeaker ECAPA-TDNN 192-d embeddings) |
-| `src/doa_tracker.py` | Direction of arrival from 4-mic array |
-| `src/fusion.py` | Audio-visual fusion (DOA + YOLO bounding boxes) |
-| `src/identity_store.js` | Gun.js storage for face + voice embeddings |
-| `src/main.py` | Integration loop combining all modalities |
+| Module | Purpose |
+|--------|---------|
+| `voice/` | Modular TTS/STT/LLM with Hume→Local failover |
+| `ipc/` | Pub/sub message bus connecting all subsystems |
+| `adapters/` | Robot hardware adapters (Johnny5, BoosterK1, UnitreeG1) |
+| `cameras/` | Camera factory (OAK-D, ZED, RealSense) |
+| `microphones/` | Microphone factory (ReSpeaker, 6-Mic, Unitree) |
+| `tools/` | Hume EVI tool registry + execution engine |
+| `actions/` | Unified action primitives (wave, point, look_at) |
+
+### Voice Factory (voice/)
+
+```python
+from voice import create_voice_stack, VoiceType
+
+# Auto-failover: Hume → Kokoro → Piper → Mock
+stack = await create_voice_stack(VoiceType.AUTO)
+
+# Force local mode
+stack = await create_voice_stack(VoiceType.LOCAL)
+```
+
+Environment: `USE_LOCAL=1` forces local, `HUME_API_KEY` for cloud.
+
+### IPC Bus (ipc/)
+
+```python
+from ipc import get_bus, VisionChannel, VoiceChannel
+
+vision = VisionChannel(get_bus())
+vision.publish_greeting("Hello Alan!")  # Replaces /tmp/johnny5_greeting.txt
+```
+
+Topics: `voice.*`, `vision.*`, `audio.*`, `sensor.*`, `actuator.*`
 
 ### Performance Targets
 

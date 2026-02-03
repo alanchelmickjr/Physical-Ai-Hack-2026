@@ -42,13 +42,35 @@ Chloe is designed for **human connection**, not task automation. She:
 ## Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           IPC MESSAGE BUS                                │
+│  Pub/sub communication between all subsystems                           │
+│  Topics: voice.*, vision.*, audio.*, sensor.*, actuator.*               │
+└────────┬──────────────┬──────────────┬──────────────┬──────────────┬────┘
+         │              │              │              │              │
+    ┌────▼────┐    ┌────▼────┐   ┌────▼────┐   ┌────▼────┐    ┌────▼────┐
+    │  VOICE  │    │ VISION  │   │  AUDIO  │   │ CAMERAS │    │ADAPTERS │
+    │ Factory │    │ WhoAmI  │   │   DOA   │   │ Factory │    │ Factory │
+    │Hume/Local│   │  Face   │   │ Speaker │   │OAK/ZED/ │    │J5/K1/G1 │
+    └─────────┘    └─────────┘   └─────────┘   │RealSense│    └─────────┘
+                                               └─────────┘
+```
+
+### Voice Module (Modular with Failover)
+
+```
+VOICE FACTORY: Hume (cloud) → Kokoro (local) → Piper (local) → Mock
+                    │              │              │
+                    ▼              ▼              ▼
+               TTS+STT+LLM    TTS+STT+LLM    TTS+STT+LLM
+```
+
+Set `USE_LOCAL=1` to force local mode, or let it auto-failover when Hume credits run out.
+
+### Hardware Layer
+
+```
 ┌─────────────────────────────────────────────────────────┐
-│  HUME EVI (Conscious Mind)                              │
-│  Conversation, personality, decisions                   │
-│  "Hello Alan!" → greets by name                         │
-└────────────────────────┬────────────────────────────────┘
-                         │ events
-┌────────────────────────▼────────────────────────────────┐
 │  SPINE (Autonomic / Muscle Memory)                      │
 │  Reflexes that run automatically:                       │
 │  • Head tracking (look at speaker)                      │
@@ -64,7 +86,7 @@ Chloe is designed for **human connection**, not task automation. She:
 └─────────────────────────────────────────────────────────┘
 ```
 
-See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for detailed diagrams.
+See [docs/MODULAR_ARCHITECTURE.md](docs/MODULAR_ARCHITECTURE.md) for component factory details.
 
 ---
 
@@ -169,19 +191,29 @@ Physical-Ai-Hack-2026/
 ├── CLAUDE.md                    # AI assistant context
 ├── robot_factory.py             # Unified robot creation entry point
 │
-├── johnny5.py                   # Hume EVI voice conversation (main entry)
+├── johnny5.py                   # Main entry - voice + IPC orchestration
+├── whoami_full.py               # Face recognition (publishes to IPC)
 ├── motion_coordinator.py        # Spine - autonomic movement control
 ├── head_tracker.py              # DOA → gantry head tracking
 ├── doa_reader.py                # ReSpeaker direction of arrival
-├── doa_spatial_fusion.py        # DOA + OAK-D depth fusion for active speaker ID
-├── spatial_tracker.py           # OAK-D stereo depth person tracking (3D positions)
-├── terrain_navigation.py        # Gap/cord/rail detection & crossing
+├── doa_spatial_fusion.py        # DOA + OAK-D depth fusion
+├── spatial_tracker.py           # OAK-D stereo depth tracking
+├── terrain_navigation.py        # Gap/cord/rail detection
 ├── visual_safety.py             # Fire/smoke detection
 ├── led_controller.py            # ReSpeaker LED feedback
-├── johnny5_body.py              # Body movement abstraction
-├── whoami_full.py               # Face recognition with temporal smoothing
 │
-├── adapters/                    # Robot hardware adapters (drop-in)
+├── voice/                       # Voice subsystem (modular factory)
+│   ├── base.py                  # TTSBackend, STTBackend, LLMBackend interfaces
+│   ├── hume.py                  # Hume EVI backend (cloud/tethered)
+│   ├── local.py                 # Kokoro TTS, Vosk STT, Ollama LLM
+│   ├── mock.py                  # Mock backends for testing
+│   └── factory.py               # VoiceFactory with auto-failover
+│
+├── ipc/                         # Inter-process communication
+│   ├── bus.py                   # MessageBus pub/sub
+│   └── channels.py              # VoiceChannel, VisionChannel, AudioChannel, etc.
+│
+├── adapters/                    # Robot hardware adapters
 │   ├── base.py                  # Abstract RobotAdapter interface
 │   ├── johnny5.py               # Johnny Five (Solo-CLI/Feetech)
 │   ├── booster_k1.py            # Booster K1 (ROS2/bipedal)
@@ -212,19 +244,19 @@ Physical-Ai-Hack-2026/
 │
 ├── tools/                       # Hume EVI tool system
 │   ├── registry.py              # 50+ tool definitions
-│   ├── engine.py                # Tool execution with dependencies
+│   ├── engine.py                # Tool execution (parallel + serial)
 │   ├── realtime.py              # 30Hz command queue
 │   └── verbal_calibration.py    # Human-assisted motor setup
 │
 ├── docs/                        # Architecture & planning
-│   ├── AUTONOMIC_ARCHITECTURE.md    # Hume ↔ Spine ↔ Adapter diagrams
-│   ├── JOHNNY5_HARDWARE_SPEC.md     # 19-servo layout & calibration
-│   ├── HUME_EVI_ROBOT_CONTROL_PLAN.md
+│   ├── MODULAR_ARCHITECTURE.md      # Component factory patterns
+│   ├── AUTONOMIC_ARCHITECTURE.md    # Hume ↔ Spine ↔ Adapter
+│   ├── JOHNNY5_HARDWARE_SPEC.md     # 19-servo layout
 │   └── ...
 │
-└── forks/                       # Forked dependencies (custom code)
-    ├── johnny5-lerobot/         # LeRobot fork with Johnny Five config
-    └── johnny5-solo/            # Solo-CLI fork (+gantry, lift, hitch)
+└── forks/                       # Forked dependencies
+    ├── johnny5-lerobot/         # LeRobot fork
+    └── johnny5-solo/            # Solo-CLI fork
 ```
 
 ---
@@ -396,6 +428,7 @@ See [docs/AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) for details
 
 ## Documentation
 
+- [MODULAR_ARCHITECTURE.md](docs/MODULAR_ARCHITECTURE.md) — Component factories, IPC, voice failover
 - [AUTONOMIC_ARCHITECTURE.md](docs/AUTONOMIC_ARCHITECTURE.md) — Hume ↔ Spine ↔ Adapter with mermaid diagrams
 - [JOHNNY5_HARDWARE_SPEC.md](docs/JOHNNY5_HARDWARE_SPEC.md) — 19-servo layout, calibration, motor IDs
 - [HUME_EVI_ROBOT_CONTROL_PLAN.md](docs/HUME_EVI_ROBOT_CONTROL_PLAN.md) — Tool execution architecture
