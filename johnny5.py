@@ -171,44 +171,6 @@ def setup_ipc_handlers():
 
 
 # =============================================================================
-# Legacy file-based IPC bridge (for backward compatibility)
-# =============================================================================
-
-GREETING_FILE = "/tmp/johnny5_greeting.txt"
-ENROLL_FILE = "/tmp/johnny5_enroll.txt"
-
-
-async def file_ipc_bridge(vision: VisionChannel):
-    """Bridge legacy file-based IPC to message bus.
-
-    This allows whoami_full.py to work without modification.
-    TODO: Update whoami_full.py to use IPC directly and remove this.
-    """
-    while True:
-        try:
-            # Check for greeting file
-            if os.path.exists(GREETING_FILE):
-                with open(GREETING_FILE, "r") as f:
-                    greeting = f.read().strip()
-                os.remove(GREETING_FILE)
-                if greeting:
-                    vision.publish_greeting(greeting)
-
-            # Check for enrollment file
-            if os.path.exists(ENROLL_FILE):
-                with open(ENROLL_FILE, "r") as f:
-                    name = f.read().strip()
-                os.remove(ENROLL_FILE)
-                if name:
-                    vision.request_enrollment(name)
-
-        except Exception as e:
-            logger.error(f"File IPC bridge error: {e}")
-
-        await asyncio.sleep(0.5)
-
-
-# =============================================================================
 # Main Application
 # =============================================================================
 
@@ -281,7 +243,6 @@ class Johnny5:
         # Start concurrent tasks
         tasks = [
             asyncio.create_task(self.stack.conversation_loop()),
-            asyncio.create_task(file_ipc_bridge(self.vision)),
             asyncio.create_task(self._idle_checker()),
         ]
 

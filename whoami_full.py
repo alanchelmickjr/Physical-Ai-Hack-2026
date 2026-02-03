@@ -15,6 +15,14 @@ from datetime import datetime, timedelta
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# IPC for communication with johnny5
+try:
+    from ipc import get_bus, Topic, VisionChannel
+    HAS_IPC = True
+except ImportError:
+    HAS_IPC = False
+    logger.warning("IPC not available, using file-based fallback")
+
 try:
     from ultralytics import YOLO
     HAS_YOLO = True
@@ -294,6 +302,15 @@ class WhoAmITouch:
         # Speech history for display
         self.speech_history = deque(maxlen=3)
 
+        # IPC for communication with johnny5
+        self.vision_channel = None
+        self._pending_enrollment = None
+        if HAS_IPC:
+            self.vision_channel = VisionChannel(get_bus(), source="whoami")
+            # Subscribe to enrollment requests from voice system
+            get_bus().subscribe(Topic.VISION_ENROLL_REQUEST, self._on_enroll_request)
+            logger.info("IPC initialized")
+
         self.load_database()
 
         # YOLO - try VPU first, then CPU fallback
@@ -490,6 +507,22 @@ class WhoAmITouch:
 
         return "Unidentified", 0.0
 
+    def _on_enroll_request(self, msg):
+        """Handle enrollment request from voice system via IPC."""
+        name = msg.data.get("name", "")
+        if name:
+            self._pending_enrollment = name
+            logger.info(f"Enrollment request received via IPC: {name}")
+
+    def _send_greeting(self, text):
+        """Send greeting via IPC or file fallback."""
+        if self.vision_channel:
+            self.vision_channel.publish_greeting(text)
+        else:
+            # File fallback for backward compatibility
+            with open("/tmp/johnny5_greeting.txt", "w") as f:
+                f.write(text)
+
     def announce_person(self, name):
         """Announce a person with their name and time since last seen - CHILD-LIKE version"""
         time_since = self.last_seen.get_time_since(name)
@@ -505,8 +538,7 @@ class WhoAmITouch:
 
         logger.info(f"Announcing: {text}")
         self.speech_history.append(text)
-        # self.tts.speak(text)  # Disabled - using Johnny5
-        with open("/tmp/johnny5_greeting.txt", "w") as f: f.write(text)
+        self._send_greeting(text)
         self.last_seen.update(name)
 
     def prompt_enrollment(self):
@@ -517,7 +549,7 @@ class WhoAmITouch:
             text = "Hi! I don't think we've met. What's your name?"
         logger.info(f"Enrollment prompt: {text}")
         self.speech_history.append(text)
-        with open("/tmp/johnny5_greeting.txt", "w") as f: f.write(text)
+        self._send_greeting(text)
 
     def draw_keyboard_icon(self, display):
         """Draw keyboard direction icon in top-right corner"""
@@ -777,39 +809,50 @@ class WhoAmITouch:
                 frame_count += 1
 
 
-            # Check for verbal enrollment request (voice system writes name to this file)
-            enroll_file = "/tmp/johnny5_enroll.txt"
-            if os.path.exists(enroll_file):
+            # Check for enrollment request (via IPC or file fallback)
+            enroll_name = self._pending_enrollment
+            self._pending_enrollment = None
+
+            # File fallback if IPC not available
+            if not enroll_name:
+                enroll_file = "/tmp/johnny5_enroll.txt"
+                if os.path.exists(enroll_file):
+                    try:
+                        with open(enroll_file, 'r') as f:
+                            enroll_name = f.read().strip()
+                        os.remove(enroll_file)
+                    except:
+                        pass
+
+            if enroll_name and len(detections) > 0:
                 try:
-                    with open(enroll_file, 'r') as f:
-                        enroll_name = f.read().strip()
-                    os.remove(enroll_file)
-                    if enroll_name and len(detections) > 0:
-                        # Get encoding from current best detection
-                        best_det = detections[0]
-                        bbox = (int(best_det[0]), int(best_det[1]),
-                                int(best_det[2]), int(best_det[3]))
-                        x1, y1, x2, y2 = bbox
-                        pad = 30
-                        y1p, y2p = max(0, y1 - pad), min(frame.shape[0], y2 + pad)
-                        x1p, x2p = max(0, x1 - pad), min(frame.shape[1], x2 + pad)
-                        face_img = frame[y1p:y2p, x1p:x2p]
-                        if face_img.size > 0:
-                            rgb_face = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
-                            face_locs = face_recognition.face_locations(rgb_face, model='hog')
-                            if not face_locs:
-                                face_locs = [(0, face_img.shape[1], face_img.shape[0], 0)]
-                            encodings = face_recognition.face_encodings(rgb_face, face_locs)
-                            if encodings:
-                                is_first = self.enroll_face(enroll_name, encodings[0])
-                                if is_first:
-                                    logger.info(f"Enrolled {enroll_name} as ADMIN")
-                                    with open("/tmp/johnny5_greeting.txt", "w") as f:
-                                        f.write(f"Welcome {enroll_name}! You are now my admin.")
-                                else:
-                                    logger.info(f"Enrolled {enroll_name}")
-                                    with open("/tmp/johnny5_greeting.txt", "w") as f:
-                                        f.write(f"Nice to meet you {enroll_name}! I'll remember you.")
+                    # Get encoding from current best detection
+                    best_det = detections[0]
+                    bbox = (int(best_det[0]), int(best_det[1]),
+                            int(best_det[2]), int(best_det[3]))
+                    x1, y1, x2, y2 = bbox
+                    pad = 30
+                    y1p, y2p = max(0, y1 - pad), min(frame.shape[0], y2 + pad)
+                    x1p, x2p = max(0, x1 - pad), min(frame.shape[1], x2 + pad)
+                    face_img = frame[y1p:y2p, x1p:x2p]
+                    if face_img.size > 0:
+                        rgb_face = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
+                        face_locs = face_recognition.face_locations(rgb_face, model='hog')
+                        if not face_locs:
+                            face_locs = [(0, face_img.shape[1], face_img.shape[0], 0)]
+                        encodings = face_recognition.face_encodings(rgb_face, face_locs)
+                        if encodings:
+                            is_first = self.enroll_face(enroll_name, encodings[0])
+                            if is_first:
+                                logger.info(f"Enrolled {enroll_name} as ADMIN")
+                                self._send_greeting(f"Welcome {enroll_name}! You are now my admin.")
+                                if self.vision_channel:
+                                    self.vision_channel.publish_enroll_complete(enroll_name, is_admin=True)
+                            else:
+                                logger.info(f"Enrolled {enroll_name}")
+                                self._send_greeting(f"Nice to meet you {enroll_name}! I'll remember you.")
+                                if self.vision_channel:
+                                    self.vision_channel.publish_enroll_complete(enroll_name, is_admin=False)
                 except Exception as e:
                     logger.error(f"Enrollment failed: {e}")
 
