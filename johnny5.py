@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Johnny 5 - Hume EVI voice conversation with face recognition integration
+"""Johnny 5 - Voice conversation with face recognition integration
 
-FIXES APPLIED:
-- Correct API: send_publish(UserInput(...)) instead of send_user_input(text=...)
-- Millisecond timestamps for latency tracking
-- Audio chunk counting and timing
-- Request/response correlation
+Supports two modes:
+- Hume EVI (cloud) - USE_LOCAL=0 or unset
+- Local Chloe (Kokoro+Vosk+Ollama) - USE_LOCAL=1
+
+Auto-fallback: If Hume fails (credit exhaustion, connection error), falls back to local.
 """
 import asyncio
 import base64
@@ -15,9 +15,25 @@ import sys
 import time
 import sounddevice as sd
 from dotenv import load_dotenv
-from hume import MicrophoneInterface, Stream
-from hume.client import AsyncHumeClient
-from hume.empathic_voice.types import SubscribeEvent, UserInput, SessionSettings
+
+# Check mode BEFORE importing Hume (saves memory if using local)
+load_dotenv()
+USE_LOCAL = os.getenv("USE_LOCAL", "1").lower() in ("1", "true", "yes")  # Default to local Chloe
+
+if not USE_LOCAL:
+    try:
+        from hume import MicrophoneInterface, Stream
+        from hume.client import AsyncHumeClient
+        from hume.empathic_voice.types import SubscribeEvent, UserInput, SessionSettings
+        HUME_AVAILABLE = True
+    except ImportError:
+        HUME_AVAILABLE = False
+        USE_LOCAL = True
+        print("Hume not installed, using local Chloe")
+else:
+    HUME_AVAILABLE = False
+    print("USE_LOCAL=1, using local Chloe")
+
 
 # LED feedback for ReSpeaker
 try:
@@ -30,33 +46,34 @@ except ImportError:
 # Unbuffered output for real-time logging
 sys.stdout = os.fdopen(sys.stdout.fileno(), "w", buffering=1)
 
-load_dotenv()
-
 HUME_API_KEY = os.getenv("HUME_API_KEY", "BAO5bSYoEGCM1hrjCmbd0RseuxKjTuyxok0hEuGpnW7AsH9r")
 HUME_CONFIG_ID = os.getenv("HUME_CONFIG_ID")
 
 
+def start_local_chloe():
+    """Start local Chloe voice (Kokoro TTS + Vosk STT + Ollama LLM)"""
+    from chloe_startup import ChloeStartup
+    print("Starting local Chloe voice...")
+    chloe = ChloeStartup()
+    asyncio.run(chloe.run())
+
+
 def find_audio_devices():
-    """Auto-detect ReSpeaker mic and HDMI output by name."""
+    """Auto-detect ReSpeaker mic. Output uses PulseAudio default for sample rate conversion."""
     devices = sd.query_devices()
     input_device = None
-    output_device = None
 
     for i, dev in enumerate(devices):
         name = dev['name'].lower()
-        if 'respeaker' in name and dev['max_input_channels'] > 0:
+        if 'respeaker' in name or 'arrayuac' in name or 'uac1.0' in name:
             input_device = i
-        elif 'hdmi' in name and dev['max_output_channels'] > 0 and output_device is None:
-            output_device = i
+            break
 
     if input_device is None:
-        print("WARNING: ReSpeaker not found, using default input")
-        input_device = sd.default.device[0] if isinstance(sd.default.device, (list, tuple)) else None
-    if output_device is None:
-        print("WARNING: HDMI not found, using default output")
-        output_device = sd.default.device[1] if isinstance(sd.default.device, (list, tuple)) else None
+        print("WARNING: ReSpeaker input not found, using default")
 
-    return input_device, output_device
+    # Output = None = PulseAudio default (handles resampling to ReSpeaker's 16kHz)
+    return input_device, None
 
 
 # Auto-detect and SET as system defaults
@@ -86,7 +103,7 @@ Keep responses brief and conversational. You're meeting people at a hackathon an
 # Conversation state
 evi_last_activity = 0.0
 in_conversation = False
-audio_playing = False  # Mute mic during playback to prevent feedback
+audio_playing = False  # Track playback state (skip greetings while speaking)
 
 # Latency tracking
 request_start_time = 0.0
@@ -94,8 +111,6 @@ first_audio_time = 0.0
 audio_chunk_count = 0
 total_audio_bytes = 0
 
-# Socket reference for muting
-_socket = None
 
 
 def log(text: str, t0: float = None) -> None:
@@ -109,8 +124,8 @@ def log(text: str, t0: float = None) -> None:
         print(f"[{ts}] {text}")
 
 
-async def on_message(message: SubscribeEvent, stream: Stream) -> None:
-    global evi_last_activity, in_conversation, audio_playing, _socket
+async def on_message(message, stream) -> None:
+    global evi_last_activity, in_conversation, audio_playing
     global first_audio_time, audio_chunk_count, total_audio_bytes, request_start_time
 
     if message.type == "chat_metadata":
@@ -141,14 +156,7 @@ async def on_message(message: SubscribeEvent, stream: Stream) -> None:
             # LED: speaking (green) - Johnny is talking
             if LED_AVAILABLE:
                 get_led().speaking()
-            # MUTE MIC when audio starts playing (prevent feedback loop)
             audio_playing = True
-            if _socket:
-                try:
-                    await _socket.mute()
-                    log("MIC MUTED (audio playing)")
-                except Exception:
-                    pass  # mute() may not exist in all SDK versions
             first_audio_time = time.time()
             if request_start_time:
                 latency_ms = (first_audio_time - request_start_time) * 1000
@@ -172,16 +180,8 @@ async def on_message(message: SubscribeEvent, stream: Stream) -> None:
         total_audio_bytes = 0
         first_audio_time = 0.0
 
-        # UNMUTE MIC after audio finishes (with small delay for speaker to quiet)
         audio_playing = False
-        if _socket:
-            try:
-                await asyncio.sleep(0.3)  # Let speaker settle
-                await _socket.unmute()
-                log("MIC UNMUTED (audio done)")
-            except Exception:
-                pass  # unmute() may not exist in all SDK versions
-        # LED: back to listening (DOA mode)
+        # LED: back to listening (DOA mode) - hardware AEC handles echo
         if LED_AVAILABLE:
             get_led().listening()
 
@@ -277,8 +277,6 @@ async def main() -> None:
 
     connect_start = time.time()
     async with client.empathic_voice.chat.connect(**connect_kwargs) as socket:
-        global _socket
-        _socket = socket  # Store for mute/unmute in on_message
         connect_ms = (time.time() - connect_start) * 1000
         log(f"Connected! Number 5 is alive! (connect took {connect_ms:.0f}ms)")
 
@@ -289,18 +287,20 @@ async def main() -> None:
         # Send Johnny 5 persona system prompt
         try:
             await socket.send_session_settings(
-                SessionSettings(system_prompt=JOHNNY5_SYSTEM_PROMPT)
+                SessionSettings(
+                    system_prompt=JOHNNY5_SYSTEM_PROMPT
+                )
             )
             log("Johnny 5 persona loaded")
         except Exception as e:
-            log(f"Warning: Could not set system prompt: {e}")
+            log(f"Warning: Could not set session settings: {e}")
 
         async def handle_messages():
             async for message in socket:
                 await on_message(message, stream)
 
         mic_kwargs = {
-            "allow_user_interrupt": False,  # DISABLED - prevents feedback loop from speaker → mic
+            "allow_user_interrupt": False,  # Disabled for demo - hardware AEC needs tuning
             "byte_stream": stream,
             "device": AUDIO_INPUT_DEVICE,
         }
@@ -315,4 +315,17 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if USE_LOCAL:
+        # Direct to local Chloe
+        start_local_chloe()
+    else:
+        # Try Hume, fallback to local on failure
+        try:
+            asyncio.run(main())
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "credit" in error_msg or "balance" in error_msg or "billing" in error_msg:
+                print(f"\n*** HUME CREDITS EXHAUSTED - Switching to local Chloe ***\n")
+            else:
+                print(f"\n*** HUME FAILED: {e} - Switching to local Chloe ***\n")
+            start_local_chloe()
