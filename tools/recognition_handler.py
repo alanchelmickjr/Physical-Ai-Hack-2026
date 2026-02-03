@@ -3,11 +3,24 @@
 This module provides the handler that the ToolExecutionEngine uses to
 query the recognition system for face identification, voice identification,
 and related operations.
+
+Integrates with SpeakerFusion for unified DOA + face + voice identification.
 """
 
 import asyncio
+import logging
 from typing import Any, Callable, Dict, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+# Optional speaker fusion integration
+try:
+    from speaker_fusion import get_speaker_fusion, SpeakerFusion
+    SPEAKER_FUSION_AVAILABLE = True
+except ImportError:
+    SPEAKER_FUSION_AVAILABLE = False
+    logger.info("Speaker fusion not available, using IPC-only mode")
 
 
 @dataclass
@@ -23,6 +36,8 @@ class RecognitionConfig:
     reduced_interval: float = 5.0
     # Voice recognition is always active
     voice_always_active: bool = True
+    # Use speaker fusion when available (DOA + face + voice)
+    use_speaker_fusion: bool = True
 
 
 class RecognitionHandler:
@@ -38,6 +53,9 @@ class RecognitionHandler:
         self._vision_channel = None
         self._audio_channel = None
 
+        # Speaker fusion (unified DOA + face + voice)
+        self._speaker_fusion: Optional[Any] = None
+
         # Track current speaker for rate limiting
         self._current_speaker: Optional[str] = None
         self._speaker_identified_at: float = 0.0
@@ -51,7 +69,18 @@ class RecognitionHandler:
         self._subscriptions = []
 
     async def initialize(self) -> None:
-        """Initialize IPC connections."""
+        """Initialize IPC connections and speaker fusion."""
+        # Try to use speaker fusion (unified DOA + face + voice)
+        if self.config.use_speaker_fusion and SPEAKER_FUSION_AVAILABLE:
+            try:
+                self._speaker_fusion = get_speaker_fusion()
+                await self._speaker_fusion.start()
+                logger.info("Recognition handler: Using speaker fusion")
+            except Exception as e:
+                logger.warning(f"Speaker fusion init failed: {e}, falling back to IPC")
+                self._speaker_fusion = None
+
+        # Also initialize IPC for direct subscriptions
         try:
             from ipc import get_bus, Topic, VisionChannel, AudioChannel
             self._bus = get_bus()
@@ -68,8 +97,9 @@ class RecognitionHandler:
             self._subscriptions.append(
                 self._bus.subscribe(Topic.AUDIO_DOA, self._on_doa_update)
             )
+            logger.info("Recognition handler: IPC connected")
         except ImportError:
-            # IPC not available, will use fallback
+            logger.warning("IPC not available")
             pass
 
     async def shutdown(self) -> None:
@@ -113,7 +143,15 @@ class RecognitionHandler:
 
     async def _handle_get_visible_people(self, args: Dict) -> Dict[str, Any]:
         """Get list of people currently visible to camera."""
-        # Request fresh data via IPC
+        # Use speaker fusion if available (has unified view)
+        if self._speaker_fusion:
+            people = self._speaker_fusion.get_visible_people()
+            return {
+                "people": people,
+                "count": len(people),
+            }
+
+        # Fallback to IPC-based approach
         if self._bus:
             from ipc import Topic
             # Publish request
@@ -134,7 +172,6 @@ class RecognitionHandler:
         return {
             "people": people,
             "count": len(people),
-            "timestamp": asyncio.get_event_loop().time()
         }
 
     async def _handle_identify_person(self, args: Dict) -> Dict[str, Any]:
@@ -185,10 +222,15 @@ class RecognitionHandler:
 
     async def _handle_get_speaker_direction(self, args: Dict) -> Dict[str, Any]:
         """Get direction of current speaker from DOA."""
+        # Use speaker fusion (combines DOA + face + voice)
+        if self._speaker_fusion:
+            return self._speaker_fusion.get_speaker_direction()
+
+        # Fallback to cached direction
         if self._speaker_direction:
             return self._speaker_direction
 
-        # Request fresh DOA data
+        # Request fresh DOA data via IPC
         if self._bus:
             from ipc import Topic
             self._bus.publish(Topic.AUDIO_REQUEST_DOA, {})
@@ -206,6 +248,11 @@ class RecognitionHandler:
 
     async def _handle_identify_speaker(self, args: Dict) -> Dict[str, Any]:
         """Identify the current speaker by voice."""
+        # Use speaker fusion for unified identification
+        if self._speaker_fusion:
+            return self._speaker_fusion.identify_speaker()
+
+        # Fallback to IPC-based approach
         if not self._current_speaker:
             return {
                 "name": None,
@@ -225,19 +272,31 @@ class RecognitionHandler:
         if not name:
             return {"success": False, "error": "Name required"}
 
-        # Request voice enrollment via IPC
+        duration = args.get("duration_seconds", 10.0)
+
+        # Use speaker fusion if available
+        if self._speaker_fusion:
+            return await self._speaker_fusion.enroll_speaker_voice(name, duration)
+
+        # Fallback to IPC
         if self._bus:
             from ipc import Topic
-            self._bus.publish(Topic.AUDIO_ENROLL_VOICE, {"name": name})
+            self._bus.publish(Topic.AUDIO_ENROLL_VOICE, {"name": name, "duration": duration})
 
         return {
             "success": True,
             "name": name,
-            "message": f"Voice enrollment started for {name}. Please speak for 10 seconds."
+            "message": f"Voice enrollment started for {name}. Please speak for {duration} seconds."
         }
 
     async def _handle_who_said_that(self, args: Dict) -> Dict[str, Any]:
         """Identify who said the last thing (combines voice + DOA + face)."""
+        # Use speaker fusion for unified identification
+        if self._speaker_fusion:
+            lookback = args.get("lookback_seconds", 5.0)
+            return self._speaker_fusion.who_said_that(lookback)
+
+        # Fallback to IPC-based approach
         result = {
             "speaker": None,
             "confidence": 0.0,
