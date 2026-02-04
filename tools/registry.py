@@ -953,6 +953,196 @@ class ToolRegistry:
             }
         ))
 
+        # =====================================================================
+        # RECOGNITION TOOLS (Face + Voice)
+        # =====================================================================
+
+        self.register(ToolDefinition(
+            name="get_visible_people",
+            description="Get list of people currently visible to the camera with their recognition status",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "include_unknown": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Include unidentified people in results"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="identify_person",
+            description="Identify who a specific person is by their position or track ID",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "track_id": {
+                        "type": "integer",
+                        "description": "Track ID from get_visible_people"
+                    },
+                    "position": {
+                        "type": "string",
+                        "enum": ["left", "center", "right", "closest"],
+                        "description": "Position in frame if track_id not known"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="enroll_person",
+            description="Enroll a new person into the recognition database using their current face",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name to assign to this person"
+                    },
+                    "track_id": {
+                        "type": "integer",
+                        "description": "Track ID of person to enroll (optional, uses closest if not specified)"
+                    },
+                    "is_admin": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Make this person an admin"
+                    }
+                },
+                "required": ["name"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="get_speaker_direction",
+            description="Get the direction (DOA angle) of the current speaker from the microphone array",
+            parameters={
+                "type": "object",
+                "properties": {}
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="identify_speaker",
+            description="Identify who is currently speaking using voice recognition",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "use_doa": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Also use direction of arrival to disambiguate"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="enroll_voice",
+            description="Enroll a person's voice into the speaker recognition database",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of person whose voice to enroll"
+                    },
+                    "duration_seconds": {
+                        "type": "number",
+                        "default": 10,
+                        "description": "How long to record for enrollment"
+                    }
+                },
+                "required": ["name"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="get_known_people",
+            description="Get list of all people in the recognition database",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "include_face": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Include people with face enrollment"
+                    },
+                    "include_voice": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Include people with voice enrollment"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="forget_person",
+            description="Remove a person from the recognition database",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of person to forget"
+                    },
+                    "forget_face": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Forget face encoding"
+                    },
+                    "forget_voice": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Forget voice encoding"
+                    }
+                },
+                "required": ["name"]
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="who_said_that",
+            description="Identify who just spoke (uses recent audio buffer)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "lookback_seconds": {
+                        "type": "number",
+                        "default": 5,
+                        "description": "How far back to check"
+                    }
+                }
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="look_at_speaker",
+            description="Turn head to look at whoever is currently speaking",
+            parameters={
+                "type": "object",
+                "properties": {}
+            }
+        ))
+
+        self.register(ToolDefinition(
+            name="get_last_seen",
+            description="Get when a person was last seen",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of person to check"
+                    }
+                },
+                "required": ["name"]
+            }
+        ))
+
 
 def tool(name: str, description: str, **params):
     """Decorator to register a function as a tool.
