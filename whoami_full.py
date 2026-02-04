@@ -251,8 +251,8 @@ class CentroidTracker:
         for row, col in zip(rows, cols):
             if row in used_rows or col in used_cols:
                 continue
-            # Max distance threshold (150 pixels - prevent merging close people)
-            if D[row, col] > 150:
+            # Max distance threshold (300 pixels - allow for fast movement)
+            if D[row, col] > 300:
                 continue
 
             track_id = object_ids[row]
@@ -295,7 +295,7 @@ class WhoAmITouch:
         self.known_names = []
         self.admin = None  # First enrolled face becomes admin
         self.db_path = os.path.expanduser('~/whoami/face_database.pkl')
-        self.tracker = CentroidTracker(max_disappeared=30)  # ~8 seconds before losing track
+        self.tracker = CentroidTracker(max_disappeared=10)  # ~0.3 sec - clear stale tracks fast
 
         # TTS and last seen tracking
         self.tts = PiperTTS()
@@ -320,10 +320,9 @@ class WhoAmITouch:
         self.frame_queue = None      # Frame queue for display
         self.detection_queue = None  # Detection queue from VPU
 
-        # HubAI model for person detection (runs entirely on VPU)
-        # YOLOv8-nano trained on COCO - class 0 is "person"
-        # Fallback: "luxonis/yunet:640x480" for face-only detection
-        self.vpu_model = os.getenv("VPU_MODEL", "luxonis/yolov8-nano:coco-320x320")
+        # HubAI model for face detection (runs entirely on VPU)
+        # YuNet - fast face detection, 38 FPS on RVC2
+        self.vpu_model = os.getenv("VPU_MODEL", "luxonis/yunet:640x480")
 
     def load_database(self):
         if os.path.exists(self.db_path):
@@ -390,8 +389,9 @@ class WhoAmITouch:
             # 3. Running inference on VPU
             # 4. Parsing outputs into ImgDetections
             logger.info(f"Loading VPU model: {self.vpu_model}")
+            model_description = dai.NNModelDescription(self.vpu_model)
             nn_with_parser = self.pipeline.create(ParsingNeuralNetwork).build(
-                cam, self.vpu_model
+                cam, model_description
             )
 
             # Display output (640x480 for screen)
@@ -681,19 +681,32 @@ class WhoAmITouch:
                     try:
                         bboxes = []
 
-                        # VPU returns ImgDetections - filter for person class (0 in COCO)
+                        # YuNet returns ImgDetectionsExtended with rotated_rect
                         for det in vpu_detections.detections:
-                            # Class 0 = person in COCO dataset
-                            if det.label == 0 and det.confidence > 0.5:
-                                # Convert normalized coords to pixel coords
-                                x1 = int(det.xmin * w)
-                                y1 = int(det.ymin * h)
-                                x2 = int(det.xmax * w)
-                                y2 = int(det.ymax * h)
-                                bboxes.append((x1, y1, x2, y2))
+                            if det.confidence > 0.25:
+                                # Get bounding box from rotated_rect (center_x, center_y, width, height, angle)
+                                rect = det.rotated_rect
+                                cx, cy = rect.center.x * w, rect.center.y * h
+                                rw, rh = rect.size.width * w, rect.size.height * h
+                                # Convert to corner coords
+                                x1 = int(cx - rw / 2)
+                                y1 = int(cy - rh / 2)
+                                x2 = int(cx + rw / 2)
+                                y2 = int(cy + rh / 2)
+                                # Clamp to frame
+                                x1, y1 = max(0, x1), max(0, y1)
+                                x2, y2 = min(w, x2), min(h, y2)
+                                # Expand bbox to include body (face is ~20% of person height)
+                                face_h = y2 - y1
+                                body_h = int(face_h * 4)
+                                y2_body = min(h, y1 + body_h)
+                                face_w = x2 - x1
+                                x1_body = max(0, x1 - int(face_w * 0.3))
+                                x2_body = min(w, x2 + int(face_w * 0.3))
+                                bboxes.append((x1_body, y1, x2_body, y2_body))
 
                         # Log detection count
-                        logger.info(f"VPU detections: {len(bboxes)} people")
+                        logger.info(f"VPU detections: {len(bboxes)} faces")
 
                         # Update tracker with all bboxes - returns tracked persons
                         tracked_persons = self.tracker.update(bboxes)
