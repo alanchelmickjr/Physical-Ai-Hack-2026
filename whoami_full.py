@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WhoAmI - Face recognition with Piper TTS speech and accessibility (child-like version)"""
+"""WhoAmI - Face recognition with VPU person detection (DepthAI V3 + HubAI Model Zoo)"""
 import cv2
 import depthai as dai
 import numpy as np
@@ -12,6 +12,14 @@ import threading
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 
+# VPU person detection via HubAI model zoo
+try:
+    from depthai_nodes.node import ParsingNeuralNetwork
+    HAS_DEPTHAI_NODES = True
+except ImportError:
+    HAS_DEPTHAI_NODES = False
+    print("WARNING: depthai-nodes not installed. Install with: pip install depthai-nodes")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -22,12 +30,6 @@ try:
 except ImportError:
     HAS_IPC = False
     logger.warning("IPC not available, using file-based fallback")
-
-try:
-    from ultralytics import YOLO
-    HAS_YOLO = True
-except:
-    HAS_YOLO = False
 
 try:
     import face_recognition
@@ -249,8 +251,8 @@ class CentroidTracker:
         for row, col in zip(rows, cols):
             if row in used_rows or col in used_cols:
                 continue
-            # Max distance threshold (300 pixels - allow for movement)
-            if D[row, col] > 300:
+            # Max distance threshold (150 pixels - prevent merging close people)
+            if D[row, col] > 150:
                 continue
 
             track_id = object_ids[row]
@@ -293,7 +295,7 @@ class WhoAmITouch:
         self.known_names = []
         self.admin = None  # First enrolled face becomes admin
         self.db_path = os.path.expanduser('~/whoami/face_database.pkl')
-        self.tracker = CentroidTracker(max_disappeared=60)  # ~16 seconds before losing track
+        self.tracker = CentroidTracker(max_disappeared=30)  # ~8 seconds before losing track
 
         # TTS and last seen tracking
         self.tts = PiperTTS()
@@ -313,14 +315,15 @@ class WhoAmITouch:
 
         self.load_database()
 
-        # YOLO - try VPU first, then CPU fallback
-        self.yolo = None
-        self.yolo_vpu = False  # Flag: True if using VPU, False if CPU
-        self.nn_queue = None   # VPU detection queue
-
+        # Camera + VPU Detection (v3 API + HubAI Model Zoo)
         self.pipeline = None
-        self.device = None     # OAK-D device reference
-        self.queue = None
+        self.frame_queue = None      # Frame queue for display
+        self.detection_queue = None  # Detection queue from VPU
+
+        # HubAI model for person detection (runs entirely on VPU)
+        # YOLOv8-nano trained on COCO - class 0 is "person"
+        # Fallback: "luxonis/yunet:640x480" for face-only detection
+        self.vpu_model = os.getenv("VPU_MODEL", "luxonis/yolov8-nano:coco-320x320")
 
     def load_database(self):
         if os.path.exists(self.db_path):
@@ -362,113 +365,58 @@ class WhoAmITouch:
         return name == self.admin
 
     def start_camera(self):
-        """Start camera with VPU YOLO if available, else CPU fallback"""
-        # Try VPU YOLO first
-        if self._try_vpu_yolo():
-            return True
+        """Start camera with VPU detection"""
+        return self._start_camera()
 
-        # VPU failed, try camera-only with CPU YOLO
-        logger.info("VPU unavailable, trying CPU YOLO fallback")
-        return self._start_camera_cpu_yolo()
+    def _start_camera(self):
+        """Start camera with VPU person detection using DepthAI V3 + HubAI Model Zoo
 
-    def _try_vpu_yolo(self):
-        """Try to start camera with YOLO on VPU using NeuralNetwork + DetectionParser"""
+        All NN inference runs on Myriad X VPU - zero CPU/GPU load for detection!
+        """
+        if not HAS_DEPTHAI_NODES:
+            logger.error("depthai-nodes required for VPU detection. Install: pip install depthai-nodes")
+            return False
+
         try:
-            # Find YOLO blob
-            blob_paths = [
-                os.path.expanduser("~/models/yolov8n_coco_640x352.blob"),
-                os.path.expanduser("~/yolov8n_coco_640x352.blob"),
-            ]
-            blob_path = None
-            for bp in blob_paths:
-                if os.path.exists(bp):
-                    blob_path = bp
-                    break
-
-            if not blob_path:
-                raise Exception("No YOLO blob file found for VPU")
-
-            # DepthAI 3.x Pipeline with NeuralNetwork for YOLO
+            # DepthAI v3 Pipeline with VPU detection
             self.pipeline = dai.Pipeline()
 
-            # Camera node
-            cam_rgb = self.pipeline.create(dai.node.ColorCamera)
-            cam_rgb.setPreviewSize(640, 480)
-            cam_rgb.setInterleaved(False)
-            cam_rgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
-            cam_rgb.setFps(30)
+            # Camera (v3 factory API)
+            cam = self.pipeline.create(dai.node.Camera).build()
 
-            # NeuralNetwork for YOLO (not DetectionNetwork)
-            nn = self.pipeline.create(dai.node.NeuralNetwork)
-            nn.setBlobPath(blob_path)
-            nn.setNumInferenceThreads(2)
-            nn.input.setBlocking(False)
+            # ParsingNeuralNetwork handles:
+            # 1. Downloading model from HubAI
+            # 2. Setting up camera input size to match model
+            # 3. Running inference on VPU
+            # 4. Parsing outputs into ImgDetections
+            logger.info(f"Loading VPU model: {self.vpu_model}")
+            nn_with_parser = self.pipeline.create(ParsingNeuralNetwork).build(
+                cam, self.vpu_model
+            )
 
-            # DetectionParser for YOLO output format
-            parser = self.pipeline.create(dai.node.DetectionParser)
-            parser.setNNFamily(dai.DetectionNetworkType.YOLO)
-            parser.setConfidenceThreshold(0.5)
-            parser.setNumClasses(80)  # COCO classes
-            parser.setCoordinateSize(4)
-            parser.setAnchors([])  # YOLOv8 is anchor-free
-            parser.setAnchorMasks({})
-            parser.setIouThreshold(0.5)
+            # Display output (640x480 for screen)
+            display_output = cam.requestOutput((640, 480), type=dai.ImgFrame.Type.BGR888p)
 
-            # Link camera -> NN -> parser
-            cam_rgb.preview.link(nn.input)
-            nn.out.link(parser.input)
-
-            # Output queues
-            xout_rgb = self.pipeline.create(dai.node.XLinkOut)
-            xout_rgb.setStreamName("rgb")
-            cam_rgb.preview.link(xout_rgb.input)
-
-            xout_nn = self.pipeline.create(dai.node.XLinkOut)
-            xout_nn.setStreamName("nn")
-            parser.out.link(xout_nn.input)
+            # Create output queues BEFORE pipeline.start()
+            self.frame_queue = display_output.createOutputQueue()
+            self.detection_queue = nn_with_parser.out.createOutputQueue()
 
             # Start pipeline
-            self.device = dai.Device(self.pipeline)
-            self.queue = self.device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
-            self.nn_queue = self.device.getOutputQueue(name="nn", maxSize=4, blocking=False)
+            self.pipeline.start()
 
-            self.yolo_vpu = True
-            logger.info(f"VPU YOLO started with {blob_path}")
+            logger.info("VPU person detection started (100% on Myriad X)")
             return True
 
         except Exception as e:
-            logger.warning(f"VPU YOLO failed: {e}")
-            if hasattr(self, 'device') and self.device:
+            logger.error(f"VPU pipeline failed: {e}")
+            import traceback
+            traceback.print_exc()
+            if self.pipeline:
                 try:
-                    self.device.close()
-                    self.device = None
+                    self.pipeline.stop()
                 except:
                     pass
             self.pipeline = None
-            return False
-
-    def _start_camera_cpu_yolo(self):
-        """Start camera-only, use CPU YOLO"""
-        try:
-            self.pipeline = dai.Pipeline()
-            cam = self.pipeline.create(dai.node.Camera).build()
-            output = cam.requestOutput((640, 480), type=dai.ImgFrame.Type.BGR888p)
-            self.queue = output.createOutputQueue()
-            self.pipeline.start()
-
-            # Load CPU YOLO
-            if HAS_YOLO:
-                try:
-                    self.yolo = YOLO('yolov8n.pt')
-                    logger.info("CPU YOLO loaded")
-                except Exception as e:
-                    logger.error(f"CPU YOLO failed: {e}")
-
-            self.yolo_vpu = False
-            logger.info("Oak D started (CPU YOLO mode)")
-            return True
-        except Exception as e:
-            logger.error(f"Camera failed: {e}")
             return False
 
     def recognize_face(self, frame, bbox):
@@ -698,9 +646,25 @@ class WhoAmITouch:
         # Startup announcement - disabled, EVI handles greetings
         # self.tts.speak("Johnny Five is alive! Face recognition ready.")
 
+        last_frame_log = 0
         while self.running:
-            if self.queue and self.queue.has():
-                frame = self.queue.get().getCvFrame()
+            frame = None
+            vpu_detections = None
+
+            # Get frame from display queue
+            if self.frame_queue and self.frame_queue.has():
+                in_frame = self.frame_queue.get()
+                frame = in_frame.getCvFrame()
+
+            # Get detections from VPU queue
+            if self.detection_queue and self.detection_queue.has():
+                vpu_detections = self.detection_queue.get()
+
+            if frame is not None:
+                # Debug: log frame receipt every 5 seconds
+                if time.time() - last_frame_log > 5:
+                    logger.info(f"Frame received: {frame.shape}")
+                    last_frame_log = time.time()
 
                 h, w = frame.shape[:2]
                 scale = min(SCREEN_W / w, SCREEN_H / h)
@@ -712,34 +676,32 @@ class WhoAmITouch:
                 y_off = (SCREEN_H - new_h) // 2
                 display[y_off:y_off+new_h, x_off:x_off+new_w] = resized
 
-                # Run detection - VPU or CPU mode
-                if frame_count % 8 == 0:
+                # Process VPU detections (runs every frame, not every 8th!)
+                if vpu_detections is not None:
                     try:
-                        bboxes = []  # Collect bounding boxes first
+                        bboxes = []
 
-                        if self.yolo_vpu and self.nn_queue:
-                            # VPU MODE - get detections from neural network queue
-                            if self.nn_queue.has():
-                                in_nn = self.nn_queue.get()
-                                for detection in in_nn.detections:
-                                    if detection.label != 0:  # Person class only
-                                        continue
-                                    x1 = int(detection.xmin * frame.shape[1])
-                                    y1 = int(detection.ymin * frame.shape[0])
-                                    x2 = int(detection.xmax * frame.shape[1])
-                                    y2 = int(detection.ymax * frame.shape[0])
-                                    bboxes.append((x1, y1, x2, y2))
+                        # VPU returns ImgDetections - filter for person class (0 in COCO)
+                        for det in vpu_detections.detections:
+                            # Class 0 = person in COCO dataset
+                            if det.label == 0 and det.confidence > 0.5:
+                                # Convert normalized coords to pixel coords
+                                x1 = int(det.xmin * w)
+                                y1 = int(det.ymin * h)
+                                x2 = int(det.xmax * w)
+                                y2 = int(det.ymax * h)
+                                bboxes.append((x1, y1, x2, y2))
 
-                        elif self.yolo:
-                            # CPU MODE - run ultralytics YOLO
-                            results = self.yolo(frame, verbose=False, conf=0.5, classes=[0])
-                            for r in results:
-                                for box in r.boxes:
-                                    x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
-                                    bboxes.append((x1, y1, x2, y2))
+                        # Log detection count
+                        logger.info(f"VPU detections: {len(bboxes)} people")
 
                         # Update tracker with all bboxes - returns tracked persons
                         tracked_persons = self.tracker.update(bboxes)
+
+                        # Log tracker state
+                        if len(tracked_persons) > 0:
+                            track_ids = [p.track_id for p in tracked_persons]
+                            logger.info(f"Tracker: {len(tracked_persons)} tracks, IDs: {track_ids}")
 
                         # Only run face recognition on persons that need it
                         detections = []
@@ -787,10 +749,9 @@ class WhoAmITouch:
                     cv2.rectangle(display, (dx1, dy1-30), (dx1+lsz[0]+10, dy1), color, -1)
                     cv2.putText(display, label, (dx1+5, dy1-8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 
-                # Status bar - show VPU or CPU mode
-                mode_str = "VPU" if self.yolo_vpu else "CPU"
+                # Status bar
                 cv2.rectangle(display, (0, 0), (SCREEN_W, 45), (30, 30, 30), -1)
-                cv2.putText(display, f"WhoAmI | {len(self.known_names)} faces | YOLO: {mode_str}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(display, f"WhoAmI | {len(self.known_names)} faces | VPU Detection", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
                 # RESTART button
                 cv2.rectangle(display, (SCREEN_W-160, SCREEN_H-60), (SCREEN_W-10, SCREEN_H-10), (0, 0, 180), -1)
@@ -860,9 +821,7 @@ class WhoAmITouch:
                 break
 
         try:
-            if self.device:
-                self.device.close()
-            elif self.pipeline:
+            if self.pipeline:
                 self.pipeline.stop()
         except:
             pass

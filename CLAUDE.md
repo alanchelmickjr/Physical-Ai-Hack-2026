@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - If unsure which file to edit, ASK. Do not guess.
 - Complete the task directly. Do not research unless asked.
 - "readme" means README.md. "claude md" means CLAUDE.md. Listen.
+- **Always document your plan before coding.** Write to a planning doc in `docs/` first, then implement.
 
 ## Project Overview
 
@@ -41,6 +42,11 @@ Key demo: Put a cap over OAK-D camera - Johnny still knows who's talking by voic
 **Bus Layout:**
 - ACM0: Left arm (1-6), lift (10), wheels (7-9)
 - ACM1: Right arm (1-6), gantry (7-8)
+
+**Network:**
+- Jetson IP: 192.168.88.44
+- User: robbie
+- Password: robot
 
 ## Tech Stack
 

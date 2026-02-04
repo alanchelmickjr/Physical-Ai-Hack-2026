@@ -28,21 +28,19 @@ pactl load-module module-echo-cancel \
 pactl set-default-source ec_source 2>/dev/null || true
 
 # =============================================================================
-# OPTION B: ReSpeaker 3.5mm Output (Enable when external speaker arrives)
+# ReSpeaker 3.5mm Output (Primary) with HDMI Fallback
 # =============================================================================
-# When using ReSpeaker's 3.5mm output, the XMOS DSP gets a proper AEC reference
-# signal internally, providing much better echo cancellation than software AEC.
-#
-# To enable:
-# 1. Connect a powered speaker to ReSpeaker's 3.5mm jack
-# 2. Uncomment the lines below
-# 3. Comment out the HDMI sink setting above
-#
-# RESPEAKER_SINK=$(pactl list sinks short | grep -i respeaker | cut -f2)
-# if [ -n "$RESPEAKER_SINK" ]; then
-#     echo "Using ReSpeaker 3.5mm output for hardware AEC"
-#     pactl set-default-sink "$RESPEAKER_SINK"
-# fi
+# ReSpeaker's XMOS DSP provides hardware AEC when speaker is on 3.5mm jack.
+# Falls back to HDMI if ReSpeaker output not detected.
+
+RESPEAKER_SINK=$(pactl list sinks short | grep -i respeaker | awk '{print $2}')
+if [ -n "$RESPEAKER_SINK" ]; then
+    echo "Using ReSpeaker 3.5mm output (hardware AEC)"
+    pactl set-default-sink "$RESPEAKER_SINK"
+else
+    echo "ReSpeaker output not found, using HDMI fallback"
+    # HDMI will be default, software AEC handles echo
+fi
 # =============================================================================
 
 # Verify

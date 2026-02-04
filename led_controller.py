@@ -1,135 +1,94 @@
 #!/usr/bin/env python3
 """ReSpeaker USB Mic Array LED Controller
 
-Controls the 12 RGB LEDs on the ReSpeaker via USB HID.
-Provides visual feedback for Johnny Five's conversation state.
+Controls the 12 RGB LEDs on the ReSpeaker USB Mic Array v2.0.
+Uses the pixel_ring library or direct USB HID if pixel_ring unavailable.
 
 States:
-- LISTENING: Default DOA mode (let firmware handle it)
-- THINKING: Purple pulse (processing user input)
-- SPEAKING: Green solid (Johnny is talking)
+- LISTENING: Blue spin (DOA mode)
+- THINKING: Purple pulse
+- SPEAKING: Green solid
 - ERROR: Red flash
-
-The ReSpeaker's default firmware shows DOA (direction of arrival) with the LEDs.
-We override this ONLY when Johnny is speaking, then return to default mode.
 """
 
 import time
 import threading
 
+# Try pixel_ring first (Seeed's official library)
 try:
-    import usb.core
-    import usb.util
-    USB_AVAILABLE = True
+    from pixel_ring import pixel_ring
+    PIXEL_RING_AVAILABLE = True
+    print("LED Controller: Using pixel_ring library")
 except ImportError:
-    USB_AVAILABLE = False
-    print("WARNING: pyusb not installed. Run: pip install pyusb --break-system-packages")
+    PIXEL_RING_AVAILABLE = False
+    print("LED Controller: pixel_ring not found, trying direct USB")
+
+# Fallback to direct USB HID
+if not PIXEL_RING_AVAILABLE:
+    try:
+        import usb.core
+        import usb.util
+        USB_AVAILABLE = True
+    except ImportError:
+        USB_AVAILABLE = False
+        print("WARNING: Neither pixel_ring nor pyusb installed")
+        print("  pip install pixel_ring --break-system-packages")
+        print("  OR pip install pyusb --break-system-packages")
+else:
+    USB_AVAILABLE = False  # Don't need raw USB if pixel_ring works
 
 
 class ReSpeakerLED:
-    """Control ReSpeaker 4-Mic Array LEDs via USB HID"""
+    """Control ReSpeaker 4-Mic Array LEDs"""
 
     VENDOR_ID = 0x2886   # Seeed Studio
-    PRODUCT_ID = 0x0018  # ReSpeaker 4-Mic Array
-
-    # XMOS XVF-3000 Tuning registers
-    REGISTER_LED_MODE = 0x00
-    REGISTER_LED_BRIGHTNESS = 0x01
-    REGISTER_LED_COLOR = 0x02
-
-    # LED Modes
-    MODE_OFF = 0
-    MODE_ON = 1           # Solid color
-    MODE_BREATHE = 2      # Breathing/pulse
-    MODE_SPIN = 3         # Spinning
-    MODE_DOA = 4          # Direction of arrival (default firmware)
+    PRODUCT_ID = 0x0018  # ReSpeaker USB Mic Array
 
     def __init__(self):
         self.dev = None
         self._current_state = None
         self._lock = threading.Lock()
+        self._use_pixel_ring = PIXEL_RING_AVAILABLE
 
-        if not USB_AVAILABLE:
-            print("LED Controller: USB not available, running in dummy mode")
-            return
+        if self._use_pixel_ring:
+            try:
+                pixel_ring.set_brightness(20)
+                print("LED Controller: pixel_ring initialized")
+            except Exception as e:
+                print(f"LED Controller: pixel_ring init failed: {e}")
+                self._use_pixel_ring = False
 
-        try:
-            self.dev = usb.core.find(idVendor=self.VENDOR_ID, idProduct=self.PRODUCT_ID)
-            if self.dev is None:
-                print("LED Controller: ReSpeaker not found on USB")
-            else:
-                # Detach kernel driver if attached
-                if self.dev.is_kernel_driver_active(0):
-                    try:
-                        self.dev.detach_kernel_driver(0)
-                    except usb.core.USBError:
-                        pass
-                print("LED Controller: ReSpeaker found and ready")
-        except Exception as e:
-            print(f"LED Controller: USB init error: {e}")
-            self.dev = None
+        if not self._use_pixel_ring and USB_AVAILABLE:
+            try:
+                self.dev = usb.core.find(idVendor=self.VENDOR_ID, idProduct=self.PRODUCT_ID)
+                if self.dev is None:
+                    print("LED Controller: ReSpeaker not found on USB")
+                else:
+                    if self.dev.is_kernel_driver_active(0):
+                        try:
+                            self.dev.detach_kernel_driver(0)
+                        except usb.core.USBError:
+                            pass
+                    print("LED Controller: Direct USB initialized")
+            except Exception as e:
+                print(f"LED Controller: USB init error: {e}")
+                self.dev = None
 
-    def _write_register(self, register: int, value: int) -> bool:
-        """Write a value to an XMOS register"""
-        if not self.dev:
-            return False
-
-        try:
-            self.dev.ctrl_transfer(
-                usb.util.CTRL_OUT | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_DEVICE,
-                0,  # bRequest
-                value,  # wValue
-                register,  # wIndex
-                [],  # data
-                timeout=1000
-            )
-            return True
-        except Exception as e:
-            print(f"LED write error: {e}")
-            return False
-
-    def _set_color(self, r: int, g: int, b: int) -> bool:
-        """Set LED color (RGB, 0-255 each)"""
-        if not self.dev:
-            return False
-
-        try:
-            # Pack RGB into the color register format
-            # Different firmware versions may use different formats
-            self.dev.ctrl_transfer(
-                usb.util.CTRL_OUT | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_DEVICE,
-                0,
-                0,  # wValue
-                self.REGISTER_LED_COLOR,
-                [r, g, b, 0],  # RGB + padding
-                timeout=1000
-            )
-            return True
-        except Exception as e:
-            print(f"LED color error: {e}")
-            return False
-
-    def _set_all_leds(self, r: int, g: int, b: int, brightness: int = 31):
-        """Set all 12 LEDs to the same color"""
+    def _usb_set_color(self, r: int, g: int, b: int):
+        """Set all LEDs via direct USB (fallback)"""
         if not self.dev:
             return
-
         try:
-            # For pixel_ring compatible firmware, use this approach
-            # Each LED needs 4 bytes: LED_index, R, G, B
-            for i in range(12):
-                self.dev.ctrl_transfer(
-                    usb.util.CTRL_OUT | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_DEVICE,
-                    0,
-                    i,  # LED index in wValue
-                    0x1C,  # Custom LED control register
-                    [r, g, b, brightness],
-                    timeout=1000
-                )
+            # ReSpeaker USB protocol: send RGB to all 12 LEDs
+            # Command 0x00 with color data
+            self.dev.ctrl_transfer(
+                usb.util.CTRL_OUT | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_DEVICE,
+                0, 0, 0,
+                [0, r, g, b] * 12,  # 12 LEDs, each gets RGB
+                timeout=1000
+            )
         except Exception as e:
-            # Try alternative method
-            self._write_register(self.REGISTER_LED_MODE, self.MODE_ON)
-            self._set_color(r, g, b)
+            print(f"LED USB error: {e}")
 
     def off(self):
         """Turn off all LEDs"""
@@ -137,61 +96,70 @@ class ReSpeakerLED:
             if self._current_state == 'off':
                 return
             self._current_state = 'off'
-            self._write_register(self.REGISTER_LED_MODE, self.MODE_OFF)
+            if self._use_pixel_ring:
+                pixel_ring.off()
+            else:
+                self._usb_set_color(0, 0, 0)
             print("LED: OFF")
 
     def listening(self):
-        """Return to default DOA mode (firmware handles LED direction)"""
+        """Blue spin - listening for speech (DOA mode)"""
         with self._lock:
             if self._current_state == 'listening':
                 return
             self._current_state = 'listening'
-            # Mode 4 = DOA mode, let firmware show sound direction
-            self._write_register(self.REGISTER_LED_MODE, self.MODE_DOA)
-            print("LED: LISTENING (DOA mode)")
+            if self._use_pixel_ring:
+                pixel_ring.wakeup()  # Blue spinning DOA effect
+            else:
+                self._usb_set_color(0, 0, 255)
+            print("LED: LISTENING (blue)")
 
     def thinking(self):
-        """Purple pulse - processing user input"""
+        """Purple pulse - processing"""
         with self._lock:
             if self._current_state == 'thinking':
                 return
             self._current_state = 'thinking'
-            self._write_register(self.REGISTER_LED_MODE, self.MODE_BREATHE)
-            self._set_color(128, 0, 255)  # Purple
-            print("LED: THINKING (purple pulse)")
+            if self._use_pixel_ring:
+                pixel_ring.think()  # Purple breathing
+            else:
+                self._usb_set_color(128, 0, 255)
+            print("LED: THINKING (purple)")
 
     def speaking(self):
-        """Green solid - Johnny is outputting audio"""
+        """Green solid - Johnny is talking"""
         with self._lock:
             if self._current_state == 'speaking':
                 return
             self._current_state = 'speaking'
-            self._write_register(self.REGISTER_LED_MODE, self.MODE_ON)
-            self._set_color(0, 255, 0)  # Green
-            self._set_all_leds(0, 255, 0)  # Ensure all LEDs are green
-            print("LED: SPEAKING (green solid)")
+            if self._use_pixel_ring:
+                pixel_ring.speak()  # Green
+            else:
+                self._usb_set_color(0, 255, 0)
+            print("LED: SPEAKING (green)")
 
     def error(self):
-        """Red flash - error state"""
+        """Red - error state"""
         with self._lock:
             self._current_state = 'error'
-            self._write_register(self.REGISTER_LED_MODE, self.MODE_BREATHE)
-            self._set_color(255, 0, 0)  # Red
-            print("LED: ERROR (red flash)")
+            if self._use_pixel_ring:
+                pixel_ring.set_color(rgb=0xFF0000)  # Red
+            else:
+                self._usb_set_color(255, 0, 0)
+            print("LED: ERROR (red)")
 
     @property
     def state(self):
-        """Get current LED state"""
         return self._current_state
 
 
-# Singleton instance
+# Singleton
 _led_instance = None
 _led_lock = threading.Lock()
 
 
 def get_led() -> ReSpeakerLED:
-    """Get the singleton LED controller instance"""
+    """Get the singleton LED controller"""
     global _led_instance
     with _led_lock:
         if _led_instance is None:
@@ -199,34 +167,29 @@ def get_led() -> ReSpeakerLED:
         return _led_instance
 
 
-# Quick test
 if __name__ == "__main__":
     print("Testing ReSpeaker LED Controller")
     print("=" * 40)
 
     led = get_led()
 
-    print("\n1. Listening mode (DOA - default)")
+    print("\n1. Listening (blue)")
     led.listening()
     time.sleep(3)
 
-    print("\n2. Thinking mode (purple pulse)")
+    print("\n2. Thinking (purple)")
     led.thinking()
     time.sleep(3)
 
-    print("\n3. Speaking mode (green solid)")
+    print("\n3. Speaking (green)")
     led.speaking()
     time.sleep(3)
 
-    print("\n4. Error mode (red flash)")
+    print("\n4. Error (red)")
     led.error()
     time.sleep(3)
 
-    print("\n5. Back to listening")
-    led.listening()
-    time.sleep(2)
-
-    print("\n6. Off")
+    print("\n5. Off")
     led.off()
 
-    print("\nTest complete!")
+    print("\nDone!")
