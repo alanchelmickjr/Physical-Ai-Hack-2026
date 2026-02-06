@@ -1,43 +1,56 @@
 #!/bin/bash
-# Johnny 5 Demo Launcher
-# Starts face recognition (via systemd) + voice conversation
+# Johnny 5 Startup Script
+# Uses PulseAudio WebRTC software AEC with ReSpeaker
 
-echo "Starting Johnny 5 Demo..."
+set -e
+cd "$(dirname "$0")"
 
-# Kill any existing johnny5 process
-pkill -f johnny5.py 2>/dev/null
-sleep 1
+echo "=== Johnny 5 Starting ==="
+echo "--- Audio Setup ---"
 
-# Setup proper echo cancellation for duplex audio (mic + speaker simultaneously)
-echo "Setting up WebRTC echo cancellation..."
-
-# Unload any existing echo-cancel module
+# Clean up old modules
 pactl unload-module module-echo-cancel 2>/dev/null || true
+pactl unload-module module-remap-source 2>/dev/null || true
 
-# Load WebRTC-based echo cancellation with tuned settings
-pactl load-module module-echo-cancel \
-    use_master_format=1 \
-    aec_method=webrtc \
-    aec_args="analog_gain_control=0 digital_gain_control=1 noise_suppression=1 extended_filter=1 voice_detection=1 high_pass_filter=1" \
-    source_name=ec_source \
-    sink_name=ec_sink 2>/dev/null || true
-
-# Set echo-cancelled source as default
-pactl set-default-source ec_source 2>/dev/null || true
-
-# ReSpeaker 3.5mm Output with HDMI Fallback
+# Find ReSpeaker devices
+RESPEAKER_INPUT=$(pactl list sources short | grep -i respeaker | grep input | awk '{print $2}')
 RESPEAKER_SINK=$(pactl list sinks short | grep -i respeaker | awk '{print $2}')
-if [ -n "$RESPEAKER_SINK" ]; then
-    echo "Using ReSpeaker 3.5mm output (hardware AEC)"
+
+if [ -n "$RESPEAKER_INPUT" ] && [ -n "$RESPEAKER_SINK" ]; then
+    echo "ReSpeaker input: $RESPEAKER_INPUT"
+    echo "ReSpeaker output: $RESPEAKER_SINK"
+
+    # Set ReSpeaker as defaults FIRST
+    pactl set-default-source "$RESPEAKER_INPUT"
     pactl set-default-sink "$RESPEAKER_SINK"
+
+    # WebRTC software AEC - uses defaults (like Saturday)
+    if pactl load-module module-echo-cancel \
+        use_master_format=1 \
+        aec_method=webrtc \
+        aec_args="analog_gain_control=0 digital_gain_control=1 noise_suppression=1" \
+        source_name=ec_source \
+        sink_name=ec_sink; then
+        # Now set AEC sources as defaults
+        pactl set-default-source ec_source
+        pactl set-default-sink ec_sink
+        echo "Source: ec_source (WebRTC AEC)"
+        echo "Sink: ec_sink (WebRTC AEC)"
+    else
+        echo "WARNING: AEC module failed to load, using raw ReSpeaker input"
+    fi
 else
-    echo "ReSpeaker output not found, using HDMI fallback"
+    echo "WARNING: ReSpeaker not found"
+    if [ -z "$RESPEAKER_INPUT" ]; then echo "  - No ReSpeaker input"; fi
+    if [ -z "$RESPEAKER_SINK" ]; then echo "  - No ReSpeaker sink"; fi
 fi
 
-# Verify
+# Verify what's loaded
 echo "Audio setup:"
 pactl get-default-source
 pactl get-default-sink
+echo "Loaded modules:"
+pactl list modules short | grep -E "echo-cancel|remap"
 
 # Restart face recognition via systemd
 echo "Restarting face recognition service..."
