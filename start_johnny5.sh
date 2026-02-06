@@ -50,7 +50,7 @@ echo "Audio setup:"
 pactl get-default-source
 pactl get-default-sink
 echo "Loaded modules:"
-pactl list modules short | grep -E "echo-cancel|remap"
+pactl list modules short | grep -E "echo-cancel|remap" || true
 
 # Restart face recognition via systemd
 echo "Restarting face recognition service..."
