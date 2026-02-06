@@ -193,8 +193,15 @@ class TrackedPerson:
         return self.current_name, self.confidence, self.locked
 
     def should_announce(self):
-        """Return True if we should announce this person (first time locked)"""
-        if self.locked and not self.announced:
+        """Return True if we should announce this person (known or needs enrollment)"""
+        if self.announced:
+            return False
+        # Known person - announce immediately when locked
+        if self.locked:
+            self.announced = True
+            return True
+        # Unknown person - prompt for enrollment after 3 failed attempts
+        if self.recognition_attempts >= 3 and self.current_name == "Unidentified":
             self.announced = True
             return True
         return False
@@ -321,8 +328,8 @@ class WhoAmITouch:
         self.detection_queue = None  # Detection queue from VPU
 
         # HubAI model for face detection (runs entirely on VPU)
-        # YuNet - fast face detection, 38 FPS on RVC2
-        self.vpu_model = os.getenv("VPU_MODEL", "luxonis/yunet:640x480")
+        # SCRFD - higher accuracy (95% vs 88%), fewer false positives, 11 FPS on RVC2
+        self.vpu_model = os.getenv("VPU_MODEL", "luxonis/scrfd-face-detection:10g-640x640")
 
     def load_database(self):
         if os.path.exists(self.db_path):
@@ -555,17 +562,15 @@ class WhoAmITouch:
             pass
 
     def draw_johnny5_status(self, display):
-        """Draw Johnny5/Chloe voice status indicator"""
+        """Draw Johnny5 voice status indicator"""
         try:
-            # Check if voice system is running (johnny5.py or chloe_startup.py)
+            # Check if voice system is running
             johnny_running = os.path.exists("/tmp/johnny5.pid")
             if not johnny_running:
                 # Fallback: check process list (cached, refresh every 5 sec)
                 if not hasattr(self, '_johnny_check_time') or time.time() - self._johnny_check_time > 5:
-                    # Check for either johnny5.py or chloe_startup.py
                     result1 = subprocess.run(['pgrep', '-f', 'johnny5.py'], capture_output=True)
-                    result2 = subprocess.run(['pgrep', '-f', 'chloe_startup.py'], capture_output=True)
-                    self._johnny_running_cache = (result1.returncode == 0 or result2.returncode == 0)
+                    self._johnny_running_cache = (result1.returncode == 0)
                     self._johnny_check_time = time.time()
                 johnny_running = getattr(self, '_johnny_running_cache', False)
 

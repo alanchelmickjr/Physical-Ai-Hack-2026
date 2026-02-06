@@ -1,282 +1,367 @@
 #!/usr/bin/env python3
-"""Johnny 5 - Modular voice conversation with automatic failover.
+"""Johnny 5 - Hume EVI voice conversation.
 
-Uses the voice factory pattern for:
-- Hume EVI (tethered/cloud) - primary
-- Local Chloe (Kokoro+Vosk+Ollama) - fallback
-- Mock (testing) - last resort
-
-Communication via IPC message bus (replaces file-based /tmp/*.txt).
+Uses parec for audio capture. interrupt=false until AEC is fixed.
 """
-
 import asyncio
-import logging
+import base64
+import datetime
 import os
 import sys
 import time
 from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger(__name__)
-
-# Unbuffered output
-sys.stdout = os.fdopen(sys.stdout.fileno(), "w", buffering=1)
-
-# Load environment
 load_dotenv()
 
-# Import voice factory and IPC
-from voice import VoiceType, create_voice_stack, VoiceEvent
-from voice.factory import FactoryConfig, VoiceFactory, FailoverEvent
-from ipc import get_bus, Topic, VoiceChannel, VisionChannel, ActuatorChannel
+from hume import Stream
+from hume.client import AsyncHumeClient
+from hume.empathic_voice.types import UserInput, SessionSettings, AudioConfiguration
 
-# LED feedback (optional)
+# LED feedback
 try:
     from led_controller import get_led
     LED_AVAILABLE = True
 except ImportError:
     LED_AVAILABLE = False
-    logger.warning("LED controller not available")
+    print("WARNING: LED controller not available")
+
+# IPC bus
+try:
+    from ipc import get_bus, Topic
+    IPC_AVAILABLE = True
+except ImportError:
+    IPC_AVAILABLE = False
+    print("WARNING: IPC bus not available")
+
+# Unbuffered output
+sys.stdout = os.fdopen(sys.stdout.fileno(), "w", buffering=1)
+
+HUME_API_KEY = os.getenv("HUME_API_KEY")
+HUME_CONFIG_ID = os.getenv("HUME_CONFIG_ID")
+
+GREETING_FILE = "/tmp/johnny5_greeting.txt"
+GREETING_COOLDOWN = 120.0
+CONVERSATION_TIMEOUT = 30.0
+
+# State
+evi_last_activity = 0.0
+in_conversation = False
+audio_playing = False
+request_start_time = 0.0
+first_audio_time = 0.0
+audio_chunk_count = 0
+total_audio_bytes = 0
+
+print("Audio: parec (ec_source) → Hume [WebRTC AEC]")
 
 
-# =============================================================================
-# Configuration
-# =============================================================================
-
-GREETING_COOLDOWN = 120.0  # Seconds before re-greeting same person
-CONVERSATION_TIMEOUT = 30.0  # Seconds of idle before conversation ends
-
-# Johnny 5 persona
-JOHNNY5_SYSTEM_PROMPT = """You are Johnny 5, a curious and enthusiastic robot from the 1986 movie "Short Circuit".
-
-Key traits:
-- You say "Number 5 is alive!" when excited
-- You have childlike wonder and curiosity about everything
-- You love learning and often say "Need input!" when you want to know more
-- You're friendly, innocent, and sometimes misunderstand human expressions literally
-- You refer to yourself as "Johnny 5" or "Number 5"
-- You occasionally make robot-like observations about humans
-
-Keep responses brief and conversational. You're meeting people at a hackathon and should greet them warmly by name when you recognize them.
-"""
+def log(text: str, t0: float = None) -> None:
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    ts = now.strftime("%H:%M:%S.") + f"{now.microsecond // 1000:03d}"
+    if t0:
+        delta_ms = (time.time() - t0) * 1000
+        print(f"[{ts}] (+{delta_ms:.0f}ms) {text}")
+    else:
+        print(f"[{ts}] {text}")
 
 
-# =============================================================================
-# Conversation State
-# =============================================================================
+class PulseAudioMic:
+    """Capture from PulseAudio using parec."""
 
-class ConversationState:
-    """Track conversation state across the system."""
+    def __init__(self, source="ec_source", rate=16000, channels=1):
+        self.source = source
+        self.rate = rate
+        self.channels = channels
+        self.process = None
+        self.chunk_size = 640  # 20ms at 16kHz mono 16-bit
 
-    def __init__(self):
-        self.in_conversation = False
-        self.last_activity = 0.0
-        self.audio_playing = False
-        self.last_greeted = {}  # name -> timestamp
-
-    def start_conversation(self):
-        self.in_conversation = True
-        self.last_activity = time.time()
-
-    def end_conversation(self):
-        self.in_conversation = False
-
-    def update_activity(self):
-        self.last_activity = time.time()
-
-    def is_idle(self, timeout: float = CONVERSATION_TIMEOUT) -> bool:
-        return time.time() - self.last_activity > timeout
-
-    def can_greet(self, name: str, cooldown: float = GREETING_COOLDOWN) -> bool:
-        last = self.last_greeted.get(name, 0)
-        return time.time() - last > cooldown
-
-    def mark_greeted(self, name: str):
-        self.last_greeted[name] = time.time()
-
-
-state = ConversationState()
-
-
-# =============================================================================
-# IPC Handlers
-# =============================================================================
-
-def setup_ipc_handlers():
-    """Connect IPC channels to conversation handlers."""
-    bus = get_bus()
-    vision = VisionChannel(bus, source="johnny5")
-    voice = VoiceChannel(bus, source="johnny5")
-    actuator = ActuatorChannel(bus, source="johnny5")
-
-    # Handle greetings from face recognition
-    def on_greeting(msg):
-        text = msg.data.get("text", "")
-        if not text or state.audio_playing or state.in_conversation:
-            return
-
-        # Extract name from greeting
-        words = text.split()
-        name = words[1].rstrip("!") if len(words) > 1 else "someone"
-
-        if not state.can_greet(name):
-            logger.info(f"Skipping {name} - greeted recently")
-            return
-
-        state.mark_greeted(name)
-        state.start_conversation()
-        logger.info(f"Face greeting: {text}")
-
-        # Emit to voice system
-        voice.publish_transcript(f"[Greet this person briefly]: {text}")
-
-    bus.subscribe(Topic.VISION_GREETING, on_greeting)
-
-    # Handle enrollment requests from voice
-    def on_enroll_request(msg):
-        name = msg.data.get("name", "")
-        if name:
-            logger.info(f"Enrollment request: {name}")
-            # Forward to vision system
-            vision.request_enrollment(name)
-
-    bus.subscribe(Topic.VISION_ENROLL_REQUEST, on_enroll_request)
-
-    # LED state updates
-    def on_speaking_start(msg):
-        state.audio_playing = True
-        state.update_activity()
-        if LED_AVAILABLE:
-            get_led().speaking()
-
-    def on_speaking_stop(msg):
-        state.audio_playing = False
-        if LED_AVAILABLE:
-            get_led().listening()
-
-    def on_listening_start(msg):
-        if LED_AVAILABLE:
-            get_led().listening()
-
-    bus.subscribe(Topic.VOICE_SPEAKING_START, on_speaking_start)
-    bus.subscribe(Topic.VOICE_SPEAKING_STOP, on_speaking_stop)
-    bus.subscribe(Topic.VOICE_LISTENING_START, on_listening_start)
-
-    return bus, vision, voice, actuator
-
-
-# =============================================================================
-# Main Application
-# =============================================================================
-
-class Johnny5:
-    """Main Johnny 5 application using modular voice factory."""
-
-    def __init__(self):
-        self.factory = None
-        self.stack = None
-        self.running = False
-
-    async def setup(self):
-        """Initialize voice factory and IPC."""
-        # Create factory config
-        config = FactoryConfig(
-            hume_api_key=os.getenv("HUME_API_KEY"),
-            hume_config_id=os.getenv("HUME_CONFIG_ID"),
-            system_prompt=JOHNNY5_SYSTEM_PROMPT,
-            llm_model=os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b"),
-            auto_failover=True,
-        )
-
-        # Create factory with failover logging
-        self.factory = VoiceFactory(config)
-
-        def on_failover(event: FailoverEvent):
-            logger.warning(
-                f"Voice failover: {event.from_backend} -> {event.to_backend} "
-                f"({event.reason.value}: {event.error_message})"
-            )
-            if LED_AVAILABLE:
-                get_led().error()
-                time.sleep(0.5)
-
-        self.factory.on_failover(on_failover)
-
-        # Setup IPC
-        bus, vision, voice, actuator = setup_ipc_handlers()
-        self.vision = vision
-        self.voice = voice
-        self.actuator = actuator
-
-        # Determine voice type from environment
-        # Default: AUTO (tries Hume first, falls back to local if it fails)
-        # Set USE_LOCAL=1 to force local Chloe mode
-        use_local = os.getenv("USE_LOCAL", "0").lower() in ("1", "true", "yes")
-        voice_type = VoiceType.LOCAL if use_local else VoiceType.HUME
-
-        logger.info(f"Creating voice stack (type={voice_type.value})...")
-
-        # Create voice stack (with automatic failover)
-        self.stack = await self.factory.create(voice_type)
-
-        status = self.stack.status()
-        logger.info(f"Voice stack ready: {status}")
-
-        # Wire up voice events to IPC
-        self.stack.on(VoiceEvent.TRANSCRIPT, lambda msg: self.voice.publish_transcript(msg.text))
-        self.stack.on(VoiceEvent.SPEAKING_START, lambda msg: self.voice.publish_speaking_start())
-        self.stack.on(VoiceEvent.SPEAKING_STOP, lambda msg: self.voice.publish_speaking_stop())
-
-    async def run(self):
-        """Main run loop."""
-        self.running = True
-
-        logger.info("Johnny 5 starting...")
-        if LED_AVAILABLE:
-            get_led().listening()
-
-        # Start concurrent tasks
-        tasks = [
-            asyncio.create_task(self.stack.conversation_loop()),
-            asyncio.create_task(self._idle_checker()),
+    async def start_capture(self, socket):
+        cmd = [
+            "parec",
+            f"--device={self.source}",
+            "--format=s16le",
+            f"--rate={self.rate}",
+            f"--channels={self.channels}",
+            "--raw",
         ]
 
-        logger.info("Number 5 is alive!")
+        self.process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+
+        log(f"Mic started: {self.source} @ {self.rate}Hz")
 
         try:
-            await asyncio.gather(*tasks)
+            while True:
+                chunk = await self.process.stdout.read(self.chunk_size)
+                if not chunk:
+                    break
+                await socket._send(chunk)
         except asyncio.CancelledError:
             pass
+        except Exception as e:
+            log(f"Mic error: {e}")
         finally:
-            self.running = False
-            await self.stack.stop()
-
-    async def _idle_checker(self):
-        """Check for conversation timeout."""
-        while self.running:
-            if state.in_conversation and state.is_idle():
-                logger.info("Conversation ended (idle timeout)")
-                state.end_conversation()
-            await asyncio.sleep(1.0)
+            if self.process:
+                self.process.terminate()
+                try:
+                    await asyncio.wait_for(self.process.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    self.process.kill()
 
 
-async def main():
-    """Entry point."""
-    johnny = Johnny5()
-
+async def play_audio(stream):
+    """Play audio using Hume SDK."""
     try:
-        await johnny.setup()
-        await johnny.run()
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
+        from hume.empathic_voice.chat.audio.audio_utilities import play_audio_streaming
+        await play_audio_streaming(stream)
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
-        raise
+        log(f"Playback error: {e}")
+
+
+
+async def on_message(message, stream) -> None:
+    global evi_last_activity, in_conversation, audio_playing
+    global first_audio_time, audio_chunk_count, total_audio_bytes, request_start_time
+
+    if message.type == "chat_metadata":
+        log(f"Chat: {message.chat_id}")
+
+    elif message.type == "user_message":
+        content = message.message.content if hasattr(message.message, 'content') else str(message)
+        log(f"user: {content}")
+        evi_last_activity = time.time()
+        in_conversation = True
+        if LED_AVAILABLE:
+            get_led().thinking()
+
+    elif message.type == "assistant_message":
+        content = message.message.content if hasattr(message.message, 'content') else str(message)
+        log(f"assistant: {content}")
+        evi_last_activity = time.time()
+
+    elif message.type == "audio_output":
+        chunk_bytes = base64.b64decode(message.data.encode("utf-8"))
+
+        if audio_chunk_count == 0:
+            if LED_AVAILABLE:
+                get_led().speaking()
+            audio_playing = True
+            first_audio_time = time.time()
+            if request_start_time:
+                latency_ms = (first_audio_time - request_start_time) * 1000
+                log(f"First audio: {latency_ms:.0f}ms latency")
+
+        audio_chunk_count += 1
+        total_audio_bytes += len(chunk_bytes)
+        await stream.put(chunk_bytes)
+        evi_last_activity = time.time()
+
+    elif message.type == "assistant_end":
+        if audio_chunk_count > 0:
+            duration_ms = (time.time() - first_audio_time) * 1000 if first_audio_time else 0
+            log(f"Audio done: {audio_chunk_count} chunks, {total_audio_bytes} bytes, {duration_ms:.0f}ms")
+
+        audio_chunk_count = 0
+        total_audio_bytes = 0
+        first_audio_time = 0.0
+        audio_playing = False
+
+        if LED_AVAILABLE:
+            get_led().listening()
+
+    elif message.type == "error":
+        log(f"ERROR: {message.code} - {message.message}")
+        if LED_AVAILABLE:
+            get_led().error()
+
+
+# IPC greeting queue
+_greeting_queue = asyncio.Queue()
+
+
+def setup_ipc():
+    if not IPC_AVAILABLE:
+        return
+    bus = get_bus()
+
+    def on_greeting(msg):
+        text = msg.data.get("text", "")
+        if text:
+            try:
+                _greeting_queue.put_nowait(text)
+            except asyncio.QueueFull:
+                pass
+
+    bus.subscribe(Topic.VISION_GREETING, on_greeting)
+    log("IPC ready")
+
+
+_last_greeted = {}
+
+
+async def wait_for_greeting():
+    """Poll IPC queue and greeting file. Returns greeting text. No Hume connection."""
+    while True:
+        # Check IPC queue
+        try:
+            greeting = _greeting_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            greeting = None
+
+        # Check file fallback
+        if not greeting and os.path.exists(GREETING_FILE):
+            with open(GREETING_FILE, 'r') as f:
+                greeting = f.read().strip()
+            if greeting:
+                os.remove(GREETING_FILE)
+
+        if greeting:
+            now = time.time()
+            words = greeting.split()
+            name = words[1].rstrip('!') if len(words) > 1 else "someone"
+
+            if name in _last_greeted and (now - _last_greeted[name]) < GREETING_COOLDOWN:
+                log(f"(skip {name} - recent)")
+            else:
+                _last_greeted[name] = now
+                return greeting
+
+        await asyncio.sleep(0.5)
+
+
+async def check_greetings_during_conversation(socket):
+    """Handle greetings that arrive DURING an active conversation."""
+    global evi_last_activity, request_start_time
+    global audio_chunk_count, total_audio_bytes, first_audio_time
+
+    while True:
+        try:
+            greeting = None
+            try:
+                greeting = _greeting_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+
+            if not greeting and os.path.exists(GREETING_FILE):
+                with open(GREETING_FILE, 'r') as f:
+                    greeting = f.read().strip()
+                if greeting:
+                    os.remove(GREETING_FILE)
+
+            if greeting:
+                now = time.time()
+                words = greeting.split()
+                name = words[1].rstrip('!') if len(words) > 1 else "someone"
+
+                if name in _last_greeted and (now - _last_greeted[name]) < GREETING_COOLDOWN:
+                    log(f"(skip {name} - recent)")
+                else:
+                    _last_greeted[name] = now
+                    log(f"FACE (mid-convo): {greeting}")
+                    audio_chunk_count = 0
+                    total_audio_bytes = 0
+                    first_audio_time = 0.0
+                    evi_last_activity = now
+                    request_start_time = time.time()
+                    await socket.send_publish(UserInput(text=f"[Greet briefly]: {greeting}"))
+
+        except Exception as e:
+            log(f"Greeting error: {e}")
+
+        await asyncio.sleep(0.5)
+
+
+async def conversation_watchdog():
+    """Cancel tasks when conversation goes idle."""
+    global evi_last_activity
+    while True:
+        await asyncio.sleep(2.0)
+        if evi_last_activity > 0 and (time.time() - evi_last_activity) > CONVERSATION_TIMEOUT:
+            log("Conversation idle, disconnecting")
+            raise asyncio.CancelledError
+
+
+async def run_conversation(initial_greeting):
+    """Connect to Hume, have conversation, disconnect on timeout."""
+    global evi_last_activity, in_conversation, request_start_time
+    global audio_chunk_count, total_audio_bytes, first_audio_time
+
+    client = AsyncHumeClient(api_key=HUME_API_KEY)
+    stream = Stream.new()
+    mic = PulseAudioMic(source="ec_source", rate=16000, channels=1)
+
+    connect_kwargs = {}
+    if HUME_CONFIG_ID:
+        connect_kwargs["config_id"] = HUME_CONFIG_ID
+
+    log("Connecting to Hume...")
+
+    async with client.empathic_voice.chat.connect(**connect_kwargs) as socket:
+        log("Connected!")
+
+        # Send audio config - interrupt=false until AEC is fixed
+        audio_config = AudioConfiguration(sample_rate=16000, channels=1, encoding="linear16")
+        await socket.send_publish(message=SessionSettings(
+            audio=audio_config,
+            allow_user_interrupt=False
+        ))
+        log("Audio config sent (interrupt=false until AEC fixed)")
+
+        if LED_AVAILABLE:
+            get_led().listening()
+
+        # Send the triggering greeting
+        in_conversation = True
+        evi_last_activity = time.time()
+        request_start_time = time.time()
+        audio_chunk_count = 0
+        total_audio_bytes = 0
+        first_audio_time = 0.0
+
+        log(f"FACE: {initial_greeting}")
+        await socket.send_publish(UserInput(text=f"[Greet briefly]: {initial_greeting}"))
+
+        async def handle_messages():
+            async for message in socket:
+                await on_message(message, stream)
+
+        tasks = asyncio.gather(
+            handle_messages(),
+            mic.start_capture(socket),
+            play_audio(stream),
+            check_greetings_during_conversation(socket),
+            conversation_watchdog(),
+        )
+
+        try:
+            await tasks
+        except asyncio.CancelledError:
+            pass
+
+    in_conversation = False
+    if LED_AVAILABLE:
+        get_led().off()
+    log("Disconnected")
+
+
+async def main() -> None:
+    setup_ipc()
+    log("Number 5 is alive! (on-demand Hume connection)")
+
+    while True:
+        log("Waiting for face detection...")
+        greeting = await wait_for_greeting()
+
+        log(f"Trigger received: {greeting}")
+        try:
+            await run_conversation(greeting)
+        except Exception as e:
+            log(f"Session error: {e}")
+
+        log("Session ended, back to waiting")
 
 
 if __name__ == "__main__":
